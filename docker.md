@@ -4,7 +4,7 @@ Dockerizing the MERN Stack Project
 Inside your backend folder, create a Dockerfile:
 
 # Use official Node.js image as the base image
-FROM node:16
+FROM node:18
 
 # Set working directory
 WORKDIR /usr/src/app
