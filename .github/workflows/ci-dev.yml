@@ -1,0 +1,12 @@
+name: CI/CD Pipeline for GkStore Backend
+
+on:
+  push:
+    branches:
+      - main    # Trigger the workflow on push to the 'main' branch
+  pull_request:
+    branches:
+      - main    # Trigger the workflow on PRs targeting the 'main' branch
+
+jobs:
+  build-and-test:
