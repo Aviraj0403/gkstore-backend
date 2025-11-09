@@ -1,7 +1,7 @@
 import cron from 'node-cron';
 import { monitorRedisAndClearCacheIfNeeded } from '../controllers/redis.controller.js';
-import checkAndClearIndex from '../elasticSearch/clearIndex.js';
-import {createFoodIndex} from '../elasticSearch/createFoodIndex.js';
+// import checkAndClearIndex from '../elasticSearch/clearIndex.js';
+// import {createFoodIndex} from '../elasticSearch/createFoodIndex.js';
 
 // Define the cron jobs
 export function startCronJobs() {

@@ -1,7 +1,7 @@
 module.exports = {
   apps: [
     {
-      name: "restro-backend-5005", // Default instance
+      name: "GKStore-6005", // Default instance
       script: "./index.js",
       env: {
         NODE_ENV: "development",
@@ -14,7 +14,7 @@ module.exports = {
       log_date_format: "YYYY-MM-DD HH:mm Z",
     },
     {
-      name: "restro-backend-5006", // Second instance running on port 5006
+      name: "GKStore-6006", // Second instance running on port 5006
       script: "./index.js",
       env: {
         NODE_ENV: "development",
@@ -27,7 +27,7 @@ module.exports = {
       log_date_format: "YYYY-MM-DD HH:mm Z",
     },
     {
-      name: "restro-backend-5007", // Third instance running on port 5007
+      name: "GKStore-6007", // Third instance running on port 5007
       script: "./index.js",
       env: {
         NODE_ENV: "development",

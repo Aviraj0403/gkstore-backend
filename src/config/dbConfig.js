@@ -9,7 +9,7 @@ const connectDB = async () => {
         const connectionInstance = await mongoose.connect(process.env.MONGO_URL, {
             dbName: DB_NAME,
             serverSelectionTimeoutMS: 10000, // Optional: shorter wait before timeout
-            appName: 'GroceryApp',           // Optional: appears in Atlas logs
+            appName: 'GkStoreApp',           // Optional: appears in Atlas logs
         });
 
         console.log(`✅ MongoDB connected at host: ${connectionInstance.connection.host}`);

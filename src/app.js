@@ -12,8 +12,8 @@ import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 
 // Routes
-// import authRoutes from './routes/auth.routes.js';
-
+import authRoutes from './routes/auth.routes.js';
+import userRoutes from './routes/user.routes.js';
 // import swaggerUi from "swagger-ui-express";
 // const swaggerFile = JSON.parse(fs.readFileSync(new URL("./swaggerApi/swagger-output.json", import.meta.url), "utf-8"));
 
@@ -50,14 +50,16 @@ app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 1000 }));
 
 // Static files
 app.use(express.static(join(__dirname, 'public')));
-
+// Routes
+app.use('/v1/api/auth', authRoutes);
+app.use('/v1/api/users', userRoutes);
 // app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerFile));
 // Health check
 app.get('/', (req, res) => {
-  res.send('Hello Avi Raj! Production is running smoothly on Ci-Cd-Checking... !');
+  res.send('Hello GK-Store ! Production is running smoothly!');
 });
 
-startCronJobs();
+// startCronJobs();
 // Error handler
 app.use((err, req, res, next) => {
   console.error(err.stack);
