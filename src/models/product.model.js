@@ -39,11 +39,6 @@ const productSchema = new mongoose.Schema({
     required: [true, 'Product description is required'],
     minlength: [10, 'Description must be at least 10 characters long'],
   },
-  ingredients: {
-    type: String,
-    trim: true,
-    required: [true, 'Ingredients are required'],
-  },
   productCode: { 
     type: String, 
     unique: true, 
@@ -55,7 +50,7 @@ const productSchema = new mongoose.Schema({
     ref: 'Variant', 
     required: false,
   },
-  images: {
+  pimages: {
     type: [String],
     required: [true, 'At least one image is required'],
     validate: {
@@ -86,9 +81,10 @@ const productSchema = new mongoose.Schema({
     type: Number,
     default: 0,
   },
-  isAvailable: {
-    type: Boolean,
-    default: true,
+  status: {
+    type: String,
+    enum: ['Active', 'Inactive'],
+    default: 'Active',
   },
   isFeatured: {
     type: Boolean,
@@ -112,7 +108,6 @@ const productSchema = new mongoose.Schema({
       message: 'You can add up to 10 tags only.',
     },
   },
-  
   additionalInfo: {
     skinType: { 
       type: String, 
@@ -129,7 +124,12 @@ const productSchema = new mongoose.Schema({
       required: [true, 'Usage instructions are required'],
     },
   },
-  reviews: [Review], // Array of reviews (should be an array of Review model documents)
+  reviews: [Review],
+  createdBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: false,
+  },
 }, { timestamps: true });
 
 // Indexing for better query performance
@@ -137,7 +137,13 @@ productSchema.index({ name: 1, slug: 1 });
 productSchema.index({ category: 1 });
 productSchema.index({ isFeatured: 1 });
 productSchema.index({ isHotProduct: 1 });
-productSchema.index({ tags: 'text', description: 'text' });
+productSchema.index({ tags: 'text', description: 'text' }, {
+  weights: {
+    name: 10,
+    description: 5,
+    ingredients: 1,
+  }
+});
 
 // JSON transformation to clean up unnecessary fields
 productSchema.set('toJSON', {
