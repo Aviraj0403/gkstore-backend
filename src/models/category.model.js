@@ -29,15 +29,6 @@ const categorySchema = new mongoose.Schema({
       },
       message: props => `${props.value} is not a valid ObjectId!`
     },
-    validate: {
-      validator: async function(v) {
-        if (v && v === this._id) {
-          throw new Error("Category cannot be its own parent");
-        }
-        return true;
-      },
-      message: "Category cannot be its own parent"
-    }
   },
   type: {
     type: String,
@@ -50,10 +41,10 @@ const categorySchema = new mongoose.Schema({
   },
   image: {
     type: [String],
-    required: true,
+    required: [true, 'Exactly two images are required'],
     validate: {
       validator: function (v) {
-        return Array.isArray(v) && v.length === 2;  // Ensure exactly 2 images
+        return Array.isArray(v) && v.length === 2;  
       },
       message: 'Category must have exactly 2 images.'
     }
@@ -71,6 +62,22 @@ const categorySchema = new mongoose.Schema({
     default: null 
   },
 }, { timestamps: true });
+
+// Pre-save hook for slug generation
+categorySchema.pre('save', function(next) {
+  if (this.isModified('name') || this.isNew) {
+    this.slug = this.name.toLowerCase().replace(/ /g, '-').replace(/[^\w-]+/g, '');
+  }
+  next();
+});
+
+// Validation to prevent self-parenting
+categorySchema.pre('save', async function(next) {
+  if (this.parentCategory && this.parentCategory.toString() === this._id.toString()) {
+    return next(new Error('Category cannot be its own parent'));
+  }
+  next();
+});
 
 categorySchema.index({ name: 'text', slug: 'text' });
 

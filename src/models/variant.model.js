@@ -1,18 +1,20 @@
 import mongoose from 'mongoose';
 
-// Define the Variant Schema
+// Refined Variant Schema
 const variantSchema = new mongoose.Schema({
   size: { 
     type: String, 
-    required: true,  // E.g., "Small", "Medium", "Large"
+    required: [true, 'Size is required'],  
+    trim: true
   },
   color: { 
     type: String, 
-    required: true, // E.g., "Ivory", "Sand", "Caramel"
+    required: [true, 'Color is required'],
+    trim: true
   },
   price: { 
     type: Number, 
-    required: true, 
+    required: [true, 'Price is required'], 
     min: [0, 'Price must be a positive value'],
   },
   stockQty: { 
@@ -23,7 +25,9 @@ const variantSchema = new mongoose.Schema({
   packaging: { 
     type: String, 
     default: 'Bottle',
+    trim: true
   },
-}, { _id: false }); // _id: false to avoid generating an _id for each variant, since it's embedded.
+}, { _id: false });
 
+// Export Variant Schema
 export default variantSchema;
