@@ -14,6 +14,17 @@ import { dirname } from 'path';
 // Routes
 import authRoutes from './routes/auth.routes.js';
 import userRoutes from './routes/user.routes.js';
+import reviewRoutes from './routes/review.routes.js';
+import cartRoutes from './routes/cart.routes.js';
+import mapRoutes from './routes/map.routes.js';
+// import orderRoutes from './routes/order.routes.js';
+// import addressRoutes from './routes/address.routes.js';
+// import productRoutes from './routes/product.routes.js';
+// import categoryRoutes from './routes/category.routes.js';
+// import wishlistRoutes from './routes/wishlist.routes.js';
+// import couponRoutes from './routes/coupon.routes.js';  
+
+
 // import swaggerUi from "swagger-ui-express";
 // const swaggerFile = JSON.parse(fs.readFileSync(new URL("./swaggerApi/swagger-output.json", import.meta.url), "utf-8"));
 
