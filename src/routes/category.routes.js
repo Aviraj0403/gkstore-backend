@@ -10,6 +10,7 @@ import {
   getCategoryDetails,
   getCategory,
   getCategoryProducts,
+  getSubCategories
 } from "../controllers/category.controller.js";
 import { verifyToken } from "../middlewares/verifyToken.js";
 import { authAdmin } from "../middlewares/authAdmin.js";
@@ -39,7 +40,7 @@ router.put(
   upload.array("images", 2), // Only 2 images allowed
   updateCategory
 );
-
+router.get("/getSubCategories/:parentCategoryId", getSubCategories); 
 router.delete("/deleteCategory/:id", authAdmin, deleteCategory); // Only admin can delete category
 
 export default router;

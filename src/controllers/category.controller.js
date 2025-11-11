@@ -212,7 +212,39 @@ export const updateCategory = async (req, res) => {
   }
 };
 
-// DELETE CATEGORY
+// RESTORE SOFT DELETED CATEGORY
+export const restoreCategory = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const category = await Category.findById(id);
+
+    if (!category) {
+      return res.status(404).json({ success: false, message: "Category not found." });
+    }
+
+    if (!category.isDeleted) {
+      return res.status(400).json({ success: false, message: "Category is not deleted." });
+    }
+
+    // Restore the category (set isDeleted to false)
+    category.isDeleted = false;
+    await category.save();
+
+    // Restore subcategories if needed
+    await Category.updateMany(
+      { parentCategory: id, isDeleted: true },
+      { $set: { isDeleted: false } }
+    );
+
+    res.json({ success: true, message: "Category and its subcategories restored." });
+  } catch (error) {
+    console.error("Error restoring category:", error);
+    res.status(500).json({ success: false, message: "Internal server error." });
+  }
+};
+
+
+// DELETE CATEGORY (SOFT DELETE)
 export const deleteCategory = async (req, res) => {
   try {
     const { id } = req.params;
@@ -221,36 +253,32 @@ export const deleteCategory = async (req, res) => {
       return res.status(404).json({ success: false, message: "Category not found." });
     }
 
-    // Delete images from Cloudinary
-    if (category.publicId) {
-      const publicIds = category.publicId.split(',');
-      for (const pid of publicIds) {
-        try {
-          await cloudinary.uploader.destroy(pid);
-        } catch (err) {
-          console.warn("Error deleting Cloudinary image:", err.message);
-        }
-      }
-    }
+    // Soft delete the category
+    category.isDeleted = true;
+    await category.save();
 
-    // Nullify references in Product
+    // Soft delete subcategories
+    await Category.updateMany(
+      { parentCategory: id, isDeleted: false }, // Only soft delete subcategories that are not already deleted
+      { $set: { isDeleted: true } }
+    );
+
+    // Nullify references in Product (marking category and subcategory as deleted)
     await Product.updateMany(
       { $or: [{ category: id }, { subCategory: id }] },
       { $set: { category: null, subCategory: null } }
     );
 
-    // Delete subcategories if any (optional, or prevent if has subs)
-    await Category.deleteMany({ parentCategory: id });
-
-    await Category.findByIdAndDelete(id);
+    // Clear cache after deletion
     await Promise.all([clearCategoryAndCategoryProductsCache(), clearMenuCache()]);
 
-    res.json({ success: true, message: "Category deleted and related products/subcategories updated." });
+    res.json({ success: true, message: "Category and its subcategories soft deleted." });
   } catch (error) {
-    console.error("Error deleting category:", error);
+    console.error("Error soft deleting category:", error);
     res.status(500).json({ success: false, message: "Internal server error." });
   }
 };
+
 
 // GET ALL CATEGORIES (for admin, no filter)
 export const getAllCategories = async (req, res) => {
@@ -413,5 +441,41 @@ export const getCategoryProducts = async (req, res) => {
   } catch (error) {
     console.error('Error fetching category products:', error);
     res.status(500).json({ success: false, message: 'Server Error' });
+  }
+};
+
+
+// GET SUBCATEGORIES BY PARENT CATEGORY ID
+export const getSubCategories = async (req, res) => {
+  try {
+    const { parentCategoryId } = req.params;
+
+    // Check if the parentCategoryId is a valid ObjectId
+    if (!mongoose.isValidObjectId(parentCategoryId)) {
+      return res.status(400).json({ success: false, message: 'Invalid parent category ID.' });
+    }
+
+    // Find the parent category
+    const parentCategory = await Category.findById(parentCategoryId);
+    if (!parentCategory) {
+      return res.status(404).json({ success: false, message: 'Parent category not found.' });
+    }
+
+    // Get the subcategories of the parent category
+    const subcategories = await Category.find({
+      parentCategory: parentCategoryId,
+      isActive: true,
+      isDeleted: false,
+    }).sort({ displayOrder: 1 }).lean();
+
+    if (subcategories.length === 0) {
+      return res.status(404).json({ success: false, message: 'No subcategories found for this parent category.' });
+    }
+
+    // Respond with the subcategories
+    res.json({ success: true, subcategories });
+  } catch (error) {
+    console.error("Error fetching subcategories:", error);
+    res.status(500).json({ success: false, message: "Internal server error." });
   }
 };
