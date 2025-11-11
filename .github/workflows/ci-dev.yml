@@ -1,4 +1,4 @@
-name: CI/CD Pipeline for GkStore Backend
+name: CI/CD Pipeline for demo
 
 on:
   push:
@@ -9,4 +9,37 @@ on:
       - main    # Trigger the workflow on PRs targeting the 'main' branch
 
 jobs:
-  build-and-test:
+  # build:
+
+  deploy:
+    name: Deploy to VPS
+    runs-on: ubuntu-latest
+
+    steps:
+      # Step 1: Checkout code from GitHub repository
+      - name: Checkout code
+        uses: actions/checkout@v3  # Update to use v3
+
+      # Step 2: Set up SSH with private key
+      - name: Set up SSH
+        uses: webfactory/ssh-agent@v0.5.3
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}  # SSH private key from GitHub Secrets
+
+      # Step 3: Deploy to VPS (restr0-backend)
+      - name: Deploy to VPS
+        run: |
+          ssh -o StrictHostKeyChecking=no root@168.231.122.13 "
+            # Navigate to the project directory
+            cd /var/www/demo/gkstore-backend  && 
+            git pull origin main && 
+            npm install && 
+
+            pm2 show demobackend > /dev/null 2>&1 && \
+            pm2 reload demobackend --watch --name demobackend || \
+            pm2 restart demobackend && \
+            # pm2 show demobackend-6005 > /dev/null 2>&1 && \
+            # pm2 reload demobackend-6005 --watch --name demobackend || \
+            # pm2 restart demobackend-6005 && \
+        
+            pm2 save"
