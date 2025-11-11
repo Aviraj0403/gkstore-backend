@@ -124,7 +124,7 @@ const productSchema = new mongoose.Schema({
       required: [true, 'Usage instructions are required'],
     },
   },
-  reviews: [Review],
+  reviews: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Review' }],
   createdBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
