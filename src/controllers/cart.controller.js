@@ -1,6 +1,6 @@
-// controllers/cart.controller.js
 import Cart from '../models/cart.model.js';
 import Product from '../models/product.model.js';
+import Variant from '../models/variant.model.js';
 import mongoose from 'mongoose';
 
 /**
@@ -15,6 +15,7 @@ export const getUserCart = async (req, res) => {
         path: 'items.product',
         select: 'name pimages brand slug variants discount',
       })
+      .populate('items.selectedVariant.variantId')
       .lean();
 
     if (!cart) {
@@ -27,17 +28,12 @@ export const getUserCart = async (req, res) => {
       });
     }
 
-    // Filter out invalid (deleted) products
-    const validItems = cart.items.filter(item => item.product);
-
-    const cartItems = validItems.map(item => {
-      const variant = item.product.variants.find(
-        v => v._id.toString() === item.selectedVariant.variantId.toString()
-      );
-
+    // Map through cart items to calculate price after discount
+    const cartItems = cart.items.map(item => {
+      const variant = item.selectedVariant;
       const priceAfterDiscount = item.product.discount > 0
-        ? item.selectedVariant.price - (item.selectedVariant.price * item.product.discount / 100)
-        : item.selectedVariant.price;
+        ? variant.price - (variant.price * item.product.discount / 100)
+        : variant.price;
 
       return {
         productId: item.product._id,
@@ -46,10 +42,10 @@ export const getUserCart = async (req, res) => {
         slug: item.product.slug,
         image: item.product.pimages[0],
         selectedVariant: {
-          variantId: item.selectedVariant.variantId,
-          size: item.selectedVariant.size,
-          color: item.selectedVariant.color,
-          price: item.selectedVariant.price,
+          variantId: variant._id,
+          size: variant.size,
+          color: variant.color,
+          price: variant.price,
           priceAfterDiscount: Number(priceAfterDiscount.toFixed(2)),
         },
         quantity: item.quantity,
@@ -93,15 +89,12 @@ export const addToCart = async (req, res) => {
       });
     }
 
-    // Fetch product with variant
-    const product = await Product.findById(productId).select('variants discount');
-    if (!product) {
-      return res.status(404).json({ success: false, message: 'Product not found.' });
-    }
+    // Fetch product and variant
+    const product = await Product.findById(productId);
+    const variant = await Variant.findById(variantId);
 
-    const variant = product.variants.find(v => v._id.toString() === variantId);
-    if (!variant) {
-      return res.status(404).json({ success: false, message: 'Variant not found.' });
+    if (!product || !variant) {
+      return res.status(404).json({ success: false, message: 'Product or variant not found.' });
     }
 
     const priceAfterDiscount = product.discount > 0
@@ -153,19 +146,13 @@ export const addToCart = async (req, res) => {
 
 /**
  * @desc Update item quantity in cart
- * @route PUT /api/cart/item
+ * @route PUT /api/cart/:productId/:variantId
  * @access Private
  */
 export const updateCartItem = async (req, res) => {
   try {
-    const { productId, variantId, quantity } = req.body;
-
-    if (!productId || !variantId || !mongoose.Types.ObjectId.isValid(productId) || !mongoose.Types.ObjectId.isValid(variantId)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Valid productId and variantId are required.',
-      });
-    }
+    const { productId, variantId } = req.params;
+    const { quantity } = req.body;
 
     if (quantity < 0) {
       return res.status(400).json({ success: false, message: 'Quantity cannot be negative.' });
@@ -207,19 +194,12 @@ export const updateCartItem = async (req, res) => {
 
 /**
  * @desc Remove specific item from cart
- * @route DELETE /api/cart/item
+ * @route DELETE /api/cart/:productId/:variantId
  * @access Private
  */
 export const removeCartItem = async (req, res) => {
   try {
-    const { productId, variantId } = req.query;
-
-    if (!productId || !variantId) {
-      return res.status(400).json({
-        success: false,
-        message: 'productId and variantId are required.',
-      });
-    }
+    const { productId, variantId } = req.params;
 
     const result = await Cart.updateOne(
       { user: req.user.id },

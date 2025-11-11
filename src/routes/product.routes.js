@@ -22,43 +22,40 @@ import { authAdmin } from "../middlewares/authAdmin.js"; // optional – create 
 const upload = multer({ dest: "uploads/" });
 const router = express.Router();
 
-router.get("/menu", getMenuProduct);                     // catalog (cached)
-router.get("/user", getUserProducts);                    // paginated + filters
+router.get("/getMenuProduct", getMenuProduct);                     // catalog (cached)
+router.get("/getUserProducts", getUserProducts);                    // paginated + filters
 router.get("/user/:productId", getUserProduct);          // single product (user view)
-router.get("/search", searchProducts);                   // search with filters
+router.get("/searchProducts", searchProducts);                   // search with filters
 router.get("/suggestions", getSearchSuggestions);        // autocomplete
-router.get("/category", getProductByCategory);           // by category
-router.get("/total", getTotalProduct);                   // total count
-router.get("/", getAllProduct);                          // cached list (fallback)
+router.get("/getProductByCategory", getProductByCategory);           // by category
+router.get("/getTotalProduct", getTotalProduct);                   // total count
+router.get("/getAllProduct", getAllProduct);                          // cached list (fallback)
 
-/* ==============================================================
-   ADMIN ROUTES – require JWT + admin role
-   ============================================================== */
 router.use(verifyToken);                     // <-- all admin routes need auth
 
 router.post(
-  "/",
+  "/createProduct",
   authAdmin,                         // <-- only admin
   upload.array("images", 5),                // max 5 images
   createProduct
 );
 
 router.put(
-  "/:productId",
+  "/updateProduct/:productId",
   authAdmin,
   upload.array("images", 5),
   updateProduct
 );
 
 router.patch(
-  "/:productId/images",
+  "/updateProductImages/:productId/images",
   authAdmin,
   upload.array("images", 5),
   updateProductImages
 );
 
-router.delete("/:id", authAdmin, deleteProduct);
+router.delete("/deleteProduct/:id", authAdmin, deleteProduct);
 
-router.get("/admin", authAdmin, getAdminProduct);   
-router.get("/:productId", authAdmin, getProduct);  
+router.get("/getAdminProduct", authAdmin, getAdminProduct);   
+router.get("/getProduct/:productId", authAdmin, getProduct);  
 export default router;

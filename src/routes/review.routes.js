@@ -10,11 +10,11 @@ import { verifyToken } from "../middlewares/verifyToken.js";
 const router = express.Router({ mergeParams: true }); // Important: allows :productId from parent
 
 // Public: Get all reviews for a product (no auth needed)
-router.get("/", getProductReviews);
+router.get("/getProductReviews", getProductReviews);
 
 // Authenticated routes
-router.post("/", verifyToken, createReview);
-router.patch("/:reviewId", verifyToken, updateReview);
-router.delete("/:reviewId", verifyToken, deleteReview);
+router.post("/createReview", verifyToken, createReview);
+router.patch("/updateReview/:reviewId", verifyToken, updateReview);
+router.delete("/deleteReview/:reviewId", verifyToken, deleteReview);
 
 export default router;
