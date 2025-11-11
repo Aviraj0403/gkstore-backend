@@ -42,5 +42,5 @@ router.put(
 );
 router.get("/getSubCategories/:parentCategoryId", getSubCategories); 
 router.delete("/deleteCategory/:id", authAdmin, deleteCategory); // Only admin can delete category
-
+router.put("/restoreCategory/:id", authAdmin, restoreCategory);
 export default router;
