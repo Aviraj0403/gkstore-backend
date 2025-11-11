@@ -5,7 +5,7 @@ import Category from "../models/category.model.js";  // Assuming Products are re
 import cloudinary from '../config/cloudinaryConfig.js';  // Assuming Cloudinary is configured
 import { promises as fs } from 'fs';
 import client from '../config/redisClient.js'; // Redis client
-import { uploadMultipleImagesToCloudinary, deleteImagesByUrlsFromCloudinary, uploadSingleImageToCloudinary } from './imageUploadController.js'; // Image upload helper
+import { uploadMultipleImagesToCloudinary, deleteImagesByUrlsFromCloudinary, uploadSingleImageToCloudinary } from './imageUpload.controller.js'; // Image upload helper
 import { clearAllRedisCache ,clearProductCache ,clearMenuCache,clearCategoryAndCategoryProductsCache} from '../services/redis.service.js'; 
 // import clientES from '../config/elasticsearch.js'; // Elasticsearch client
 export const createProduct = async (req, res) => {
