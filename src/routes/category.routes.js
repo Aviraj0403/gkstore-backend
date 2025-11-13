@@ -10,7 +10,8 @@ import {
   getCategoryDetails,
   getCategory,
   getCategoryProducts,
-  getSubCategories
+  getSubCategories,
+  restoreCategory,
 } from "../controllers/category.controller.js";
 import { verifyToken } from "../middlewares/verifyToken.js";
 import { authAdmin } from "../middlewares/authAdmin.js";

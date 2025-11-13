@@ -243,41 +243,71 @@ export const restoreCategory = async (req, res) => {
   }
 };
 
-
-// DELETE CATEGORY (SOFT DELETE)
 export const deleteCategory = async (req, res) => {
   try {
     const { id } = req.params;
     const category = await Category.findById(id);
+
     if (!category) {
       return res.status(404).json({ success: false, message: "Category not found." });
     }
 
-    // Soft delete the category
-    category.isDeleted = true;
-    await category.save();
+    // Hard delete the category
+    await Category.deleteOne({ _id: id });
 
-    // Soft delete subcategories
-    await Category.updateMany(
-      { parentCategory: id, isDeleted: false }, // Only soft delete subcategories that are not already deleted
-      { $set: { isDeleted: true } }
-    );
+    // Hard delete associated subcategories (where parentCategory matches)
+    await Category.deleteMany({ parentCategory: id });
 
-    // Nullify references in Product (marking category and subcategory as deleted)
-    await Product.updateMany(
-      { $or: [{ category: id }, { subCategory: id }] },
-      { $set: { category: null, subCategory: null } }
-    );
+    // Hard delete any products that have the deleted category or subcategory
+    await Product.deleteMany({
+      $or: [{ category: id }, { subCategory: id }]
+    });
 
     // Clear cache after deletion
     await Promise.all([clearCategoryAndCategoryProductsCache(), clearMenuCache()]);
 
-    res.json({ success: true, message: "Category and its subcategories soft deleted." });
+    res.json({ success: true, message: "Category and its subcategories hard deleted." });
   } catch (error) {
-    console.error("Error soft deleting category:", error);
+    console.error("Error hard deleting category:", error);
     res.status(500).json({ success: false, message: "Internal server error." });
   }
 };
+
+
+// DELETE CATEGORY (SOFT DELETE)
+// export const deleteCategory = async (req, res) => {
+//   try {
+//     const { id } = req.params;
+//     const category = await Category.findById(id);
+//     if (!category) {
+//       return res.status(404).json({ success: false, message: "Category not found." });
+//     }
+
+//     // Soft delete the category
+//     // category.isDeleted = true;
+//     // await category.save();
+
+//     // Soft delete subcategories
+//     // await Category.updateMany(
+//     //   { parentCategory: id, isDeleted: false }, // Only soft delete subcategories that are not already deleted
+//     //   { $set: { isDeleted: true } }
+//     // );
+
+//     // Nullify references in Product (marking category and subcategory as deleted)
+//     // await Product.updateMany(
+//     //   { $or: [{ category: id }, { subCategory: id }] },
+//     //   { $set: { category: null, subCategory: null } }
+//     // );
+
+//     // Clear cache after deletion
+//     await Promise.all([clearCategoryAndCategoryProductsCache(), clearMenuCache()]);
+
+//     res.json({ success: true, message: "Category and its subcategories soft deleted." });
+//   } catch (error) {
+//     console.error("Error soft deleting category:", error);
+//     res.status(500).json({ success: false, message: "Internal server error." });
+//   }
+// };
 
 
 // GET ALL CATEGORIES (for admin, no filter)
@@ -285,16 +315,32 @@ export const getAllCategories = async (req, res) => {
   try {
     const cacheKey = 'allCategories';
 
+    // Check if data is cached
     const cachedData = await client.get(cacheKey);
     if (cachedData) {
       console.log('📦 Serving categories from cache');
       return res.json(JSON.parse(cachedData));
     }
 
-    const categories = await Category.find().sort({ displayOrder: 1 }).lean();
+    // Fetch all categories, populating the parentCategory field if it exists
+    const categories = await Category.find()
+      .sort({ displayOrder: 1 })
+      .lean()
+      .populate('parentCategory', 'name'); // Populate parentCategory's 'name' field
 
-    const response = { success: true, categories };
+    // Process categories to format the response, converting parentCategory to name if it's an ObjectId
+    const formattedCategories = categories.map(category => {
+      // Check if the category has a parentCategory and map it to its name
+      if (category.parentCategory) {
+        category.parentCategory = category.parentCategory.name; // Replace ObjectId with the name
+      }
 
+      return category;
+    });
+
+    const response = { success: true, categories: formattedCategories };
+
+    // Cache the response for future requests
     await client.set(cacheKey, JSON.stringify(response), { EX: CACHE_EXPIRATION });
 
     res.json(response);
@@ -303,6 +349,7 @@ export const getAllCategories = async (req, res) => {
     res.status(500).json({ success: false, message: "Internal server error." });
   }
 };
+
 
 // GET MAIN CATEGORIES (for user, filter active)
 export const getMainCategories = async (req, res) => {
@@ -390,9 +437,15 @@ export const getCategoryDetails = async (req, res) => {
 export const getCategory = async (req, res) => {
   try {
     const { id } = req.params;
-    const category = await Category.findById(id).lean();
+    const category = await Category.findById(id).
+    lean()
+    .populate('parentCategory', 'name');
     if (!category) {
       return res.status(404).json({ success: false, message: "Category not found." });
+    }
+
+    if (category.type === 'Sub' && !category.parentCategory) {
+      category.parentCategory = null;
     }
     res.json({ success: true, category });
   } catch (error) {
