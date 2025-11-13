@@ -111,7 +111,7 @@ const productSchema = new mongoose.Schema({
   additionalInfo: {
     skinType: { 
       type: String, 
-      required: [true, 'Skin type is required'], 
+      // required: [true, 'Skin type is required'], 
     },
     shelfLife: {
       type: Number,  // In months
@@ -121,7 +121,7 @@ const productSchema = new mongoose.Schema({
     usageInstructions: {
       type: String,
       trim: true,
-      required: [true, 'Usage instructions are required'],
+      // required: [true, 'Usage instructions are required'],
     },
   },
   reviews: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Review' }],

@@ -65,7 +65,7 @@ app.use(express.static(join(__dirname, 'public')));
 app.use('/v1/api/auth', authRoutes);
 app.use('/v1/api/users', userRoutes);
 app.use('/v1/api/reviews', reviewRoutes);
-app.use('/v1/api/product', productRoutes);
+app.use('/v1/api/products', productRoutes);
 app.use('/v1/api/category', categoryRoutes);
 // app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerFile));
 // Health check

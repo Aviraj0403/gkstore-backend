@@ -36,7 +36,7 @@ router.use(verifyToken);                     // <-- all admin routes need auth
 router.post(
   "/createProduct",
   authAdmin,                         // <-- only admin
-  upload.array("images", 5),                // max 5 images
+  upload.array("pimages", 5),                // max 5 images
   createProduct
 );
 
