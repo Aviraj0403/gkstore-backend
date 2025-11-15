@@ -8,7 +8,6 @@ import {
   deleteProduct,
   getAdminProduct,
   getAllProduct,
-  getMenuProduct,
   searchProducts,
   getSearchSuggestions,
   getUserProducts,
@@ -19,10 +18,8 @@ import {
 } from "../controllers/product.controller.js";
 import { verifyToken } from "../middlewares/verifyToken.js";
 import { authAdmin } from "../middlewares/authAdmin.js"; // optional – create if needed
-const upload = multer({ dest: "uploads/" });
+import upload from '../middlewares/upload.js';
 const router = express.Router();
-
-router.get("/getMenuProduct", getMenuProduct);                     // catalog (cached)
 router.get("/getUserProducts", getUserProducts);                    // paginated + filters
 router.get("/user/:productId", getUserProduct);          // single product (user view)
 router.get("/searchProducts", searchProducts);                   // search with filters

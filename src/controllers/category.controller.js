@@ -4,11 +4,10 @@ import Product from "../models/product.model.js";
 import cloudinary from '../config/cloudinaryConfig.js';
 import { promises as fs } from 'fs';
 import client from '../config/redisClient.js';
-import { clearAllRedisCache, clearProductCache, clearMenuCache, clearCategoryAndCategoryProductsCache } from '../services/redis.service.js';
+import { clearCategoryAndCategoryProductsCache, clearMenuCache } from '../services/redis.service.js';
 import slugify from 'slugify';
-
+import { deleteImagesByUrlsFromCloudinary } from "./imageUpload.controller.js";
 const CACHE_EXPIRATION = 86400;
-
 // CREATE CATEGORY
 export const createCategory = async (req, res) => {
   try {
@@ -50,7 +49,7 @@ export const createCategory = async (req, res) => {
     }
 
     const imageUrls = [];
-    const publicIds = [];
+    const uploadedPublicIds = []; // Track for rollback
 
     for (const file of files) {
       try {
@@ -63,18 +62,13 @@ export const createCategory = async (req, res) => {
             { fetch_format: "webp" },
           ],
         });
-
         imageUrls.push(uploadResult.secure_url);
-        publicIds.push(uploadResult.public_id);
-
-        // Delete local file
+        uploadedPublicIds.push(uploadResult.public_id);
         await fs.unlink(file.path);
       } catch (uploadErr) {
-        console.error("❌ Cloudinary Upload Error:", uploadErr);
-        // Clean up partial uploads
-        for (const pid of publicIds) {
-          await cloudinary.uploader.destroy(pid);
-        }
+        // console.error("Cloudinary Upload Error:", uploadErr);
+        const rollbackUrls = imageUrls.slice(0, imageUrls.indexOf(uploadResult?.secure_url));
+        await deleteImagesByUrlsFromCloudinary(rollbackUrls);
         return res.status(500).json({
           success: false,
           message: "Image upload failed. Please try again.",
@@ -89,21 +83,18 @@ export const createCategory = async (req, res) => {
       parentCategory: type === 'Sub' ? parentCategory : null,
       type,
       displayOrder,
-      image: imageUrls,
-      publicId: publicIds.join(','),
+      image: imageUrls, // Store only URLs
       isActive: true,
       isDeleted: false,
     });
 
     await Promise.all([clearCategoryAndCategoryProductsCache(), clearMenuCache()]);
-
     res.status(201).json({ success: true, category: newCategory });
   } catch (error) {
     console.error("Error creating category:", error);
     res.status(500).json({ success: false, message: "Internal server error." });
   }
 };
-
 // UPDATE CATEGORY
 export const updateCategory = async (req, res) => {
   try {
@@ -127,10 +118,9 @@ export const updateCategory = async (req, res) => {
       }
     }
 
-    let imageUrls = category.image;
-    let publicIds = category.publicId ? category.publicId.split(',') : [];
+    let imageUrls = category.image || [];
 
-    // Handle new image uploads if provided - replace all
+    // Handle new image uploads if provided
     const files = req.files;
     if (files && files.length > 0) {
       if (files.length !== 2) {
@@ -140,17 +130,13 @@ export const updateCategory = async (req, res) => {
         });
       }
 
-      // Delete old images
-      for (const pid of publicIds) {
-        try {
-          await cloudinary.uploader.destroy(pid);
-        } catch (err) {
-          console.warn(`Failed to delete old Cloudinary image: ${err.message}`);
-        }
+      // Delete old images using URLs
+      if (imageUrls.length > 0) {
+        await deleteImagesByUrlsFromCloudinary(imageUrls);
       }
 
       imageUrls = [];
-      publicIds = [];
+      const uploadedPublicIds = [];
 
       for (const file of files) {
         try {
@@ -163,17 +149,13 @@ export const updateCategory = async (req, res) => {
               { fetch_format: "webp" },
             ],
           });
-
           imageUrls.push(uploadResult.secure_url);
-          publicIds.push(uploadResult.public_id);
-
+          uploadedPublicIds.push(uploadResult.public_id);
           await fs.unlink(file.path);
         } catch (uploadErr) {
-          console.error("❌ Cloudinary Upload Error:", uploadErr);
-          // Clean up partial
-          for (const pid of publicIds) {
-            await cloudinary.uploader.destroy(pid);
-          }
+          console.error("Cloudinary Upload Error:", uploadErr);
+          // Rollback partial uploads
+          await deleteImagesByUrlsFromCloudinary(imageUrls);
           return res.status(500).json({
             success: false,
             message: "Image upload failed.",
@@ -193,6 +175,7 @@ export const updateCategory = async (req, res) => {
       }
     }
 
+    // Update fields
     category.name = name || category.name;
     category.slug = slug;
     category.description = description !== undefined ? description : category.description;
@@ -200,42 +183,36 @@ export const updateCategory = async (req, res) => {
     category.type = type || category.type;
     category.displayOrder = displayOrder !== undefined ? displayOrder : category.displayOrder;
     category.image = imageUrls;
-    category.publicId = publicIds.join(',');
 
     await category.save();
     await Promise.all([clearCategoryAndCategoryProductsCache(), clearMenuCache()]);
-
     res.json({ success: true, category });
   } catch (error) {
     console.error("Error updating category:", error);
     res.status(500).json({ success: false, message: "Internal server error." });
   }
 };
-
 // RESTORE SOFT DELETED CATEGORY
 export const restoreCategory = async (req, res) => {
   try {
     const { id } = req.params;
     const category = await Category.findById(id);
-
     if (!category) {
       return res.status(404).json({ success: false, message: "Category not found." });
     }
-
     if (!category.isDeleted) {
       return res.status(400).json({ success: false, message: "Category is not deleted." });
     }
 
-    // Restore the category (set isDeleted to false)
     category.isDeleted = false;
     await category.save();
 
-    // Restore subcategories if needed
     await Category.updateMany(
       { parentCategory: id, isDeleted: true },
       { $set: { isDeleted: false } }
     );
 
+    await Promise.all([clearCategoryAndCategoryProductsCache(), clearMenuCache()]);
     res.json({ success: true, message: "Category and its subcategories restored." });
   } catch (error) {
     console.error("Error restoring category:", error);
@@ -243,106 +220,59 @@ export const restoreCategory = async (req, res) => {
   }
 };
 
+// DELETE CATEGORY (HARD DELETE + CLOUDINARY CLEANUP)
 export const deleteCategory = async (req, res) => {
   try {
     const { id } = req.params;
     const category = await Category.findById(id);
-
     if (!category) {
       return res.status(404).json({ success: false, message: "Category not found." });
     }
 
-    // Hard delete the category
+    // Delete images from Cloudinary
+    if (category.image && category.image.length > 0) {
+      await deleteImagesByUrlsFromCloudinary(category.image);
+    }
+
+    // Hard delete category, subcategories, and products
     await Category.deleteOne({ _id: id });
-
-    // Hard delete associated subcategories (where parentCategory matches)
     await Category.deleteMany({ parentCategory: id });
-
-    // Hard delete any products that have the deleted category or subcategory
     await Product.deleteMany({
       $or: [{ category: id }, { subCategory: id }]
     });
 
-    // Clear cache after deletion
     await Promise.all([clearCategoryAndCategoryProductsCache(), clearMenuCache()]);
-
-    res.json({ success: true, message: "Category and its subcategories hard deleted." });
+    res.json({ success: true, message: "Category, subcategories, products, and images deleted successfully." });
   } catch (error) {
     console.error("Error hard deleting category:", error);
     res.status(500).json({ success: false, message: "Internal server error." });
   }
 };
 
-
-// DELETE CATEGORY (SOFT DELETE)
-// export const deleteCategory = async (req, res) => {
-//   try {
-//     const { id } = req.params;
-//     const category = await Category.findById(id);
-//     if (!category) {
-//       return res.status(404).json({ success: false, message: "Category not found." });
-//     }
-
-//     // Soft delete the category
-//     // category.isDeleted = true;
-//     // await category.save();
-
-//     // Soft delete subcategories
-//     // await Category.updateMany(
-//     //   { parentCategory: id, isDeleted: false }, // Only soft delete subcategories that are not already deleted
-//     //   { $set: { isDeleted: true } }
-//     // );
-
-//     // Nullify references in Product (marking category and subcategory as deleted)
-//     // await Product.updateMany(
-//     //   { $or: [{ category: id }, { subCategory: id }] },
-//     //   { $set: { category: null, subCategory: null } }
-//     // );
-
-//     // Clear cache after deletion
-//     await Promise.all([clearCategoryAndCategoryProductsCache(), clearMenuCache()]);
-
-//     res.json({ success: true, message: "Category and its subcategories soft deleted." });
-//   } catch (error) {
-//     console.error("Error soft deleting category:", error);
-//     res.status(500).json({ success: false, message: "Internal server error." });
-//   }
-// };
-
-
-// GET ALL CATEGORIES (for admin, no filter)
+// GET ALL CATEGORIES (Admin)
 export const getAllCategories = async (req, res) => {
   try {
     const cacheKey = 'allCategories';
-
-    // Check if data is cached
     const cachedData = await client.get(cacheKey);
     if (cachedData) {
-      console.log('📦 Serving categories from cache');
+      console.log('Serving all categories from cache');
       return res.json(JSON.parse(cachedData));
     }
 
-    // Fetch all categories, populating the parentCategory field if it exists
     const categories = await Category.find()
       .sort({ displayOrder: 1 })
       .lean()
-      .populate('parentCategory', 'name'); // Populate parentCategory's 'name' field
+      .populate('parentCategory', 'name');
 
-    // Process categories to format the response, converting parentCategory to name if it's an ObjectId
-    const formattedCategories = categories.map(category => {
-      // Check if the category has a parentCategory and map it to its name
-      if (category.parentCategory) {
-        category.parentCategory = category.parentCategory.name; // Replace ObjectId with the name
+    const formattedCategories = categories.map(cat => {
+      if (cat.parentCategory) {
+        cat.parentCategory = cat.parentCategory.name;
       }
-
-      return category;
+      return cat;
     });
 
     const response = { success: true, categories: formattedCategories };
-
-    // Cache the response for future requests
     await client.set(cacheKey, JSON.stringify(response), { EX: CACHE_EXPIRATION });
-
     res.json(response);
   } catch (error) {
     console.error("Error fetching categories:", error);
@@ -350,15 +280,13 @@ export const getAllCategories = async (req, res) => {
   }
 };
 
-
-// GET MAIN CATEGORIES (for user, filter active)
+// GET MAIN CATEGORIES (Public)
 export const getMainCategories = async (req, res) => {
   try {
     const cacheKey = 'mainCategories';
-
     const cachedData = await client.get(cacheKey);
     if (cachedData) {
-      console.log('📦 Serving main categories from cache');
+      console.log('Serving main categories from cache');
       return res.json(JSON.parse(cachedData));
     }
 
@@ -369,9 +297,7 @@ export const getMainCategories = async (req, res) => {
     }).sort({ displayOrder: 1 }).lean();
 
     const response = { success: true, categories };
-
     await client.set(cacheKey, JSON.stringify(response), { EX: CACHE_EXPIRATION });
-
     res.json(response);
   } catch (error) {
     console.error("Error fetching main categories:", error);
@@ -379,15 +305,14 @@ export const getMainCategories = async (req, res) => {
   }
 };
 
-// GET CATEGORY DETAILS
+// GET CATEGORY DETAILS 
 export const getCategoryDetails = async (req, res) => {
   try {
     const { id } = req.params;
     const cacheKey = `categoryDetails:${id}`;
-
     const cachedData = await client.get(cacheKey);
     if (cachedData) {
-      console.log('📦 Serving category details from cache');
+      console.log('Serving category details from cache');
       return res.json(JSON.parse(cachedData));
     }
 
@@ -408,7 +333,6 @@ export const getCategoryDetails = async (req, res) => {
     }).sort({ displayOrder: 1 }).lean();
 
     const allCategoryIds = [id, ...subcategories.map(cat => cat._id)];
-
     const products = await Product.find({
       $or: [
         { category: { $in: allCategoryIds } },
@@ -425,7 +349,6 @@ export const getCategoryDetails = async (req, res) => {
     };
 
     await client.set(cacheKey, JSON.stringify(response), { EX: CACHE_EXPIRATION });
-
     res.json(response);
   } catch (error) {
     console.error("Error fetching category details:", error);
@@ -437,16 +360,20 @@ export const getCategoryDetails = async (req, res) => {
 export const getCategory = async (req, res) => {
   try {
     const { id } = req.params;
-    const category = await Category.findById(id).
-    lean()
-    .populate('parentCategory', 'name');
+    const category = await Category.findById(id)
+      .lean()
+      .populate('parentCategory', 'name');
+
     if (!category) {
       return res.status(404).json({ success: false, message: "Category not found." });
     }
 
-    if (category.type === 'Sub' && !category.parentCategory) {
+    if (category.type === 'Sub' && category.parentCategory) {
+      category.parentCategory = category.parentCategory.name;
+    } else {
       category.parentCategory = null;
     }
+
     res.json({ success: true, category });
   } catch (error) {
     console.error("Error fetching category:", error);
@@ -459,10 +386,10 @@ export const getCategoryProducts = async (req, res) => {
   try {
     const { categoryId } = req.params;
     const cacheKey = `categoryProducts:${categoryId}`;
-
     const cachedData = await client.get(cacheKey);
+
     if (cachedData) {
-      console.log('📦 Serving category products from cache');
+      console.log('Serving category products from cache');
       return res.json(JSON.parse(cachedData));
     }
 
@@ -487,9 +414,7 @@ export const getCategoryProducts = async (req, res) => {
     }
 
     const response = { success: true, products };
-
     await client.set(cacheKey, JSON.stringify(response), { EX: CACHE_EXPIRATION });
-
     res.json(response);
   } catch (error) {
     console.error('Error fetching category products:', error);
@@ -497,24 +422,20 @@ export const getCategoryProducts = async (req, res) => {
   }
 };
 
-
-// GET SUBCATEGORIES BY PARENT CATEGORY ID
+// GET SUBCATEGORIES BY PARENT
 export const getSubCategories = async (req, res) => {
   try {
     const { parentCategoryId } = req.params;
 
-    // Check if the parentCategoryId is a valid ObjectId
     if (!mongoose.isValidObjectId(parentCategoryId)) {
       return res.status(400).json({ success: false, message: 'Invalid parent category ID.' });
     }
 
-    // Find the parent category
     const parentCategory = await Category.findById(parentCategoryId);
     if (!parentCategory) {
       return res.status(404).json({ success: false, message: 'Parent category not found.' });
     }
 
-    // Get the subcategories of the parent category
     const subcategories = await Category.find({
       parentCategory: parentCategoryId,
       isActive: true,
@@ -525,10 +446,282 @@ export const getSubCategories = async (req, res) => {
       return res.status(404).json({ success: false, message: 'No subcategories found for this parent category.' });
     }
 
-    // Respond with the subcategories
     res.json({ success: true, subcategories });
   } catch (error) {
     console.error("Error fetching subcategories:", error);
     res.status(500).json({ success: false, message: "Internal server error." });
   }
 };
+
+
+// --Product fetching based on category and subcategory--
+
+// 1. Get all products directly in a main category (excluding those in subcategories) - using slug
+export const getProductsByMainCategoryDirectSlug = async (req, res) => {
+  try {
+    const { slug } = req.params;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20; // Default to 20 for e-commerce
+    const skip = (page - 1) * limit;
+
+    const cacheKey = `products_main_direct:${slug}:p${page}:l${limit}`;
+    const cachedData = await client.get(cacheKey);
+    if (cachedData) {
+      console.log('📦 Serving direct main category products from cache');
+      return res.json(JSON.parse(cachedData));
+    }
+
+    if (!slug) {
+      return res.status(400).json({ success: false, message: 'Slug is required' });
+    }
+
+    const category = await Category.findOne({
+      slug,
+      type: 'Main',
+      isActive: true,
+      isDeleted: false
+    }).lean();
+
+    if (!category) {
+      return res.status(404).json({ success: false, message: 'Main category not found' });
+    }
+
+    const products = await Product.find({
+      category: category._id,
+      subCategory: null, // Direct products only (no subcategory)
+      status: 'Active'
+    })
+      .populate('category', 'name slug')
+      .populate('subCategory', 'name slug')
+      .select('-__v')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean();
+
+    const total = await Product.countDocuments({
+      category: category._id,
+      subCategory: null,
+      status: 'Active'
+    });
+
+    const response = {
+      success: true,
+      products,
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit)
+      }
+    };
+
+    await client.set(cacheKey, JSON.stringify(response), { EX: CACHE_EXPIRATION });
+    res.json(response);
+  } catch (error) {
+    console.error('Error fetching direct main category products:', error);
+    res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+};
+
+// 2. Get all products in a subcategory - using slug
+export const getProductsBySubCategorySlug = async (req, res) => {
+  try {
+    const { slug } = req.params;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const skip = (page - 1) * limit;
+
+    const cacheKey = `products_sub:${slug}:p${page}:l${limit}`;
+    const cachedData = await client.get(cacheKey);
+    if (cachedData) {
+      console.log('📦 Serving subcategory products from cache');
+      return res.json(JSON.parse(cachedData));
+    }
+
+    if (!slug) {
+      return res.status(400).json({ success: false, message: 'Slug is required' });
+    }
+
+    const category = await Category.findOne({
+      slug,
+      type: 'Sub',
+      isActive: true,
+      isDeleted: false
+    }).lean();
+
+    if (!category) {
+      return res.status(404).json({ success: false, message: 'Subcategory not found' });
+    }
+
+    const products = await Product.find({
+      $or: [
+        { category: category._id },
+        { subCategory: category._id }
+      ],
+      status: 'Active'
+    })
+      .populate('category', 'name slug')
+      .populate('subCategory', 'name slug')
+      .select('-__v')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean();
+
+    const total = await Product.countDocuments({
+      $or: [
+        { category: category._id },
+        { subCategory: category._id }
+      ],
+      status: 'Active'
+    });
+
+    const response = {
+      success: true,
+      products,
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit)
+      }
+    };
+
+    await client.set(cacheKey, JSON.stringify(response), { EX: CACHE_EXPIRATION });
+    res.json(response);
+  } catch (error) {
+    console.error('Error fetching subcategory products:', error);
+    res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+};
+
+// 3. Get all products in a main category and its subcategories - using slug
+export const getProductsByCategoryAndSubsSlug = async (req, res) => {
+  try {
+    const { slug } = req.params;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const skip = (page - 1) * limit;
+
+    const cacheKey = `products_category_with_subs:${slug}:p${page}:l${limit}`;
+    const cachedData = await client.get(cacheKey);
+    if (cachedData) {
+      console.log('📦 Serving category with subs products from cache');
+      return res.json(JSON.parse(cachedData));
+    }
+
+    if (!slug) {
+      return res.status(400).json({ success: false, message: 'Slug is required' });
+    }
+
+    const mainCategory = await Category.findOne({
+      slug,
+      type: 'Main',
+      isActive: true,
+      isDeleted: false
+    }).lean();
+
+    if (!mainCategory) {
+      return res.status(404).json({ success: false, message: 'Main category not found' });
+    }
+
+    const subcategories = await Category.find({
+      parentCategory: mainCategory._id,
+      isActive: true,
+      isDeleted: false
+    }).select('_id').lean();
+
+    const allCategoryIds = [mainCategory._id, ...subcategories.map(cat => cat._id)];
+
+    const products = await Product.find({
+      $or: [
+        { category: { $in: allCategoryIds } },
+        { subCategory: { $in: allCategoryIds } }
+      ],
+      status: 'Active'
+    })
+      .populate('category', 'name slug')
+      .populate('subCategory', 'name slug')
+      .select('-__v')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean();
+
+    const total = await Product.countDocuments({
+      $or: [
+        { category: { $in: allCategoryIds } },
+        { subCategory: { $in: allCategoryIds } }
+      ],
+      status: 'Active'
+    });
+
+    const response = {
+      success: true,
+      products,
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit)
+      }
+    };
+
+    await client.set(cacheKey, JSON.stringify(response), { EX: CACHE_EXPIRATION });
+    res.json(response);
+  } catch (error) {
+    console.error('Error fetching category and subcategories products:', error);
+    res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+};
+
+// GET CATEGORY WITH SUBCATEGORIES BY SLUG
+export const getCategoryWithSubsBySlug = async (req, res) => {
+  try {
+    const { slug } = req.params;
+    const cacheKey = `category_with_subs:${slug}`;
+    const cachedData = await client.get(cacheKey);
+    if (cachedData) {
+      console.log('Serving category + subs from cache');
+      return res.json(JSON.parse(cachedData));
+    }
+
+    const mainCategory = await Category.findOne({
+      slug,
+      type: 'Main',
+      isActive: true,
+      isDeleted: false
+    }).select('name slug image').lean();
+
+    if (!mainCategory) {
+      return res.status(404).json({ success: false, message: 'Category not found' });
+    }
+
+    const subcategories = await Category.find({
+      parentCategory: mainCategory._id,
+      isActive: true,
+      isDeleted: false
+    })
+      .sort({ displayOrder: 1 })
+      .select('name slug image')
+      .lean();
+
+    const response = {
+      success: true,
+      category: {
+        name: mainCategory.name,
+        slug: mainCategory.slug,
+        image: mainCategory.image
+      },
+      subcategories
+    };
+
+    await client.set(cacheKey, JSON.stringify(response), { EX: CACHE_EXPIRATION });
+    res.json(response);
+  } catch (error) {
+    console.error('Error fetching category with subcategories:', error);
+    res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+};
+

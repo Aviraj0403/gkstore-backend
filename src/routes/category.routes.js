@@ -1,6 +1,5 @@
 // routes/category.routes.js
 import express from "express";
-import multer from "multer";
 import {
   createCategory,
   updateCategory,
@@ -12,11 +11,14 @@ import {
   getCategoryProducts,
   getSubCategories,
   restoreCategory,
+  getProductsByMainCategoryDirectSlug,
+  getProductsBySubCategorySlug,
+  getProductsByCategoryAndSubsSlug,
+  getCategoryWithSubsBySlug
 } from "../controllers/category.controller.js";
 import { verifyToken } from "../middlewares/verifyToken.js";
 import { authAdmin } from "../middlewares/authAdmin.js";
-
-const upload = multer({ dest: "uploads/" });
+import upload from '../middlewares/upload.js'; 
 const router = express.Router();
 
 // Public Routes (no authentication required)
@@ -26,7 +28,6 @@ router.get("/getCategory/:id", getCategory); // Get single category details
 router.get("/getCategoryDetails/:id", getCategoryDetails); // Get category with subcategories and products
 router.get("/getCategoryProducts/:categoryId", getCategoryProducts); // Get products by category
 
-// Admin Routes (authentication required)
 router.use(verifyToken); // All admin routes require token verification
 router.post(
   "/createCategory",
@@ -44,4 +45,19 @@ router.put(
 router.get("/getSubCategories/:parentCategoryId", getSubCategories); 
 router.delete("/deleteCategory/:id", authAdmin, deleteCategory); // Only admin can delete category
 router.put("/restoreCategory/:id", authAdmin, restoreCategory);
+
+// product fetching based on category and subcategory
+router.get(
+  '/categories/:slug',
+  getProductsByMainCategoryDirectSlug
+);
+router.get(
+  '/subcategories/:slug/products',
+  getProductsBySubCategorySlug
+);
+router.get('/:slug', getCategoryWithSubsBySlug);
+router.get(
+  '/:slug/products',
+  getProductsByCategoryAndSubsSlug
+);
 export default router;
