@@ -24,7 +24,7 @@ const variantSchema = new mongoose.Schema({
   },
   packaging: { 
     type: String, 
-    default: 'Bottle',
+    default: 'N/A',
     trim: true
   },
 }, { _id: false });

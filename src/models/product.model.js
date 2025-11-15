@@ -66,14 +66,9 @@ const productSchema = new mongoose.Schema({
     min: [0, 'Discount must be at least 0'],
     max: [100, 'Discount cannot exceed 100'],
   },
-  // price: {
-  //   type: Number,
-  //   required: [true, 'Price is required'],
-  //   min: [0, 'Price must be positive'],
-  // },
   rating: {
     type: Number,
-    default: 0,
+    default: 4.3,
     min: [0, 'Rating must be between 0 and 5'],
     max: [5, 'Rating must be between 0 and 5'],
   },

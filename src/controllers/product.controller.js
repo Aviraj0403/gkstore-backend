@@ -6,7 +6,7 @@ import cloudinary from '../config/cloudinaryConfig.js';  // Assuming Cloudinary 
 import { promises as fs } from 'fs';
 import client from '../config/redisClient.js'; // Redis client
 import { uploadMultipleImagesToCloudinary, deleteImagesByUrlsFromCloudinary, uploadSingleImageToCloudinary } from './imageUpload.controller.js'; // Image upload helper
-import { clearAllRedisCache ,clearProductCache ,clearMenuCache,clearCategoryAndCategoryProductsCache} from '../services/redis.service.js'; 
+import { clearAllRedisCache, clearProductCache, clearMenuCache, clearCategoryAndCategoryProductsCache } from '../services/redis.service.js';
 // import clientES from '../config/elasticsearch.js'; // Elasticsearch client
 const generateProductCode = async (name) => {
   const base = name.replace(/[^a-zA-Z0-9]/g, '').substring(0, 10).toUpperCase();
@@ -36,8 +36,9 @@ export const createProduct = async (req, res) => {
       tags = [],
       additionalInfo = {},
     } = req.body;
-
+    // console.log("additionalInfo:", additionalInfo);
     const createdBy = req.user?.id;
+
 
     // ── Required Fields ─────────────────────────────────────────────────────
     if (!name || !category || !brand || !description) {
@@ -77,8 +78,8 @@ export const createProduct = async (req, res) => {
     const tagArray = Array.isArray(tags)
       ? tags
       : typeof tags === 'string'
-      ? tags.split(',').map((t) => t.trim())
-      : [];
+        ? tags.split(',').map((t) => t.trim())
+        : [];
 
     // ── Image Upload (1–5) ─────────────────────────────────────────────────
     const files = req.files;
@@ -105,7 +106,12 @@ export const createProduct = async (req, res) => {
         message: 'Image upload failed. Please try again.',
       });
     }
+    let parsedAdditionalInfo = additionalInfo;
 
+    if (typeof req.body.additionalInfo === 'string') {
+      // Parse only if it's a string
+      parsedAdditionalInfo = JSON.parse(req.body.additionalInfo);
+    }
     // ── Create Product ─────────────────────────────────────────────────────
     const newProduct = await Product.create({
       name,
@@ -119,14 +125,15 @@ export const createProduct = async (req, res) => {
       pimages: imageUrls,
       discount,
       tags: tagArray,
-      additionalInfo,
+      additionalInfo: parsedAdditionalInfo
+      ,
       isFeatured,
       isHotProduct,
       isBestSeller,
       status,
       createdBy,
     });
-
+    // console.log(newProduct.additionalInfo);
     // ── Clear Caches ───────────────────────────────────────────────────────
     await Promise.all([
       clearMenuCache(),
@@ -224,7 +231,7 @@ export const getAdminProduct = async (req, res) => {
 
     const categoryFilter = category ? { category } : {};
 
-   
+
     if (search) {
       const textQuery = {
         ...categoryFilter,
@@ -232,12 +239,12 @@ export const getAdminProduct = async (req, res) => {
       };
 
       products = await Product.find(textQuery)
-        .populate('category' ,'name') 
+        .populate('category', 'name')
         .skip(Number(skip))
         .limit(Number(limit))
         .sort({ score: { $meta: 'textScore' }, createdAt: -1 })
         .select({ score: { $meta: 'textScore' } })
-        .lean(); 
+        .lean();
 
       totalProducts = await Product.countDocuments(textQuery);
 
@@ -251,11 +258,11 @@ export const getAdminProduct = async (req, res) => {
         };
 
         products = await Product.find(regexQuery)
-          .populate('category', 'name') 
+          .populate('category', 'name')
           .skip(Number(skip))
           .limit(Number(limit))
           .sort({ createdAt: -1 })
-          .lean(); 
+          .lean();
 
         totalProducts = await Product.countDocuments(regexQuery);
       }
@@ -264,7 +271,7 @@ export const getAdminProduct = async (req, res) => {
       const query = { ...categoryFilter };
 
       products = await Product.find(query)
-        .populate('category' ,'name') // Populate category
+        .populate('category', 'name') // Populate category
         .skip(Number(skip))
         .limit(Number(limit))
         .sort({ createdAt: -1 })
@@ -386,8 +393,8 @@ export const searchProducts = async (req, res) => {
     } = req.query;
 
     // Pagination validation
-    const pageNum = Math.max(1, Number(page));  
-    const limitNum = Math.min(100, Number(limit));  
+    const pageNum = Math.max(1, Number(page));
+    const limitNum = Math.min(100, Number(limit));
     const skip = (pageNum - 1) * limitNum;
 
     let matchStage = {};
@@ -463,7 +470,7 @@ export const searchProducts = async (req, res) => {
 export const getSearchSuggestions = async (req, res) => {
   try {
     // Destructure the query params with default values
-    const { search = '', limit = 5 } = req.query;  
+    const { search = '', limit = 5 } = req.query;
     console.log('Search query for suggestions:', search);
 
     // If no search term is provided, return empty suggestions
@@ -538,15 +545,15 @@ export const getSearchSuggestions = async (req, res) => {
 
 export const getUserProducts = async (req, res) => {
   try {
-    const { 
-      page = 1, 
-      limit = 12, 
-      search = '', 
-      category, 
-      sortBy = 'createdAt', 
+    const {
+      page = 1,
+      limit = 12,
+      search = '',
+      category,
+      sortBy = 'createdAt',
       sortOrder = -1,  // -1 for descending, 1 for ascending
-      isHotProduct = false, 
-      isFeatured = false, 
+      isHotProduct = false,
+      isFeatured = false,
       isBestSeller = false,
     } = req.query;
 
@@ -565,8 +572,8 @@ export const getUserProducts = async (req, res) => {
     };
 
     // Combine all filters into one query object
-    const query = { 
-      ...categoryFilter, 
+    const query = {
+      ...categoryFilter,
       ...specialFilters,
     };
 
@@ -774,8 +781,8 @@ export const updateProduct = async (req, res) => {
     const tagArray = Array.isArray(tags)
       ? tags
       : typeof tags === 'string'
-      ? tags.split(',').map(t => t.trim())
-      : [];
+        ? tags.split(',').map(t => t.trim())
+        : [];
     const existing = await Product.findById(productId);
     if (!existing) {
       return res.status(404).json({ success: false, message: 'Product not found.' });
@@ -880,37 +887,37 @@ export const deleteProduct = async (req, res) => {
 };
 
 export const getProductByCategory = async (req, res) => {
-    try {
-        const { category } = req.query;
+  try {
+    const { category } = req.query;
 
-        const products = await Product.find({ category }).limit(12).lean();
+    const products = await Product.find({ category }).limit(12).lean();
 
-        res.status(200).json({
-            success: true,
-            products,
-        });
-    } catch (error) {
-        res.status(500).json({
-            success: false,
-            message: "Error fetching products by category.",
-        });
-    }
+    res.status(200).json({
+      success: true,
+      products,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Error fetching products by category.",
+    });
+  }
 };
 
 export const getTotalProduct = async (req, res) => {
-    try {
-        const total = await Product.countDocuments();
+  try {
+    const total = await Product.countDocuments();
 
-        res.status(200).json({
-            success: true,
-            totalProduct: total,
-        });
-    } catch (error) {
-        console.error("Error fetching total products:", error);
-        res.status(500).json({
-            success: false,
-            message: "Failed to fetch total product items.",
-            error: error.message,
-        });
-    }
+    res.status(200).json({
+      success: true,
+      totalProduct: total,
+    });
+  } catch (error) {
+    console.error("Error fetching total products:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch total product items.",
+      error: error.message,
+    });
+  }
 };
