@@ -17,6 +17,7 @@ import userRoutes from './routes/user.routes.js';
 import reviewRoutes from './routes/review.routes.js';
 import cartRoutes from './routes/cart.routes.js';
 import mapRoutes from './routes/map.routes.js';
+import offerRoutes from './routes/offer.routes.js';
 // import orderRoutes from './routes/order.routes.js';
 // import addressRoutes from './routes/address.routes.js';
 import productRoutes from './routes/product.routes.js';
@@ -70,6 +71,12 @@ app.use('/v1/api/users', userRoutes);
 app.use('/v1/api/reviews', reviewRoutes);
 app.use('/v1/api/products', productRoutes);
 app.use('/v1/api/category', categoryRoutes);
+app.use('/v1/api/cart', cartRoutes);
+app.use('/v1/api/map', mapRoutes);
+app.use('/v1/api', offerRoutes);
+// app.use('/v1/api/orders', orderRoutes);
+
+
 // app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerFile));
 // Health check
 app.get('/', (req, res) => {
