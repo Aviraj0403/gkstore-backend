@@ -40,8 +40,8 @@ app.set('trust proxy', 1);
 const allowedOrigins = [
   'http://localhost:5173',
   'http://localhost:5174',
-  'https://gkstore-admin.vercel.app/',
-  'https://demo.gurmeetkaurstore.jdinfotechsolutions.in/'
+  'https://gkstore-admin.vercel.app',
+  'https://demo.gurmeetkaurstore.jdinfotechsolutions.in'
 
 ];
 
@@ -84,3 +84,4 @@ app.use((err, req, res, next) => {
 });
 
 export default app;
+
