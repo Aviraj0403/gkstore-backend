@@ -965,6 +965,7 @@ export const getProductsByCategorySlug = async (req, res) => {
         $project: {
           pimage: { $arrayElemAt: ['$pimages', 0] },  // Get the first image
           name: 1,
+          slug: 1,
           discount: 1,
           isBestSeller: 1,
           description: 1,
@@ -997,6 +998,7 @@ export const getProductsByCategorySlug = async (req, res) => {
         $project: {
           pimage: 1,
           name: 1,
+          slug: 1,
           discount: 1,
           isBestSeller: 1,
           description: 1,
@@ -1081,7 +1083,9 @@ export const getProductsByCategoryAndSubCategorySlug = async (req, res) => {
                 isDeleted: false,
               },
             },
-            { $project: { _id: 1 } }, // Only select the subcategory ID
+            { $project: { _id: 1 ,
+              
+            } }, // Only select the subcategory ID
           ],
           as: 'subCategory',
         },
@@ -1118,6 +1122,7 @@ export const getProductsByCategoryAndSubCategorySlug = async (req, res) => {
         $project: {
           pimage: { $arrayElemAt: ['$pimages', 0] },  // Get the first image
           name: 1,
+          slug: 1,
           discount: 1,
           isBestSeller: 1,
           description: 1,
@@ -1152,7 +1157,7 @@ export const getProductsByCategoryAndSubCategorySlug = async (req, res) => {
       // Calculate total count of matching products
       {
         $facet: {
-          data: [{ $skip: skip }, { $limit: limit }, { $project: { name: 1, description: 1, pimage: 1, discount: 1, rating: 1, discountedPrice: 1, originalAmnt: 1, isBestSeller: 1 } }],
+          data: [{ $skip: skip }, { $limit: limit }, { $project: { name: 1, slug: 1, description: 1, pimage: 1, discount: 1, rating: 1, discountedPrice: 1, originalAmnt: 1, isBestSeller: 1 } }],
           totalCount: [{ $count: 'total' }],
         },
       },
