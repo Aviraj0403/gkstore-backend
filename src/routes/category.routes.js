@@ -14,7 +14,8 @@ import {
   getProductsByMainCategoryDirectSlug,
   getProductsBySubCategorySlug,
   getProductsByCategoryAndSubsSlug,
-  getCategoryWithSubsBySlug
+  getCategoryWithSubsBySlug,
+  getMenuCategories
 } from "../controllers/category.controller.js";
 import { verifyToken } from "../middlewares/verifyToken.js";
 import { authAdmin } from "../middlewares/authAdmin.js";
@@ -28,7 +29,8 @@ router.get("/getCategory/:id", getCategory); // Get single category details
 router.get("/getCategoryDetails/:id", getCategoryDetails); // Get category with subcategories and products
 router.get("/getCategoryProducts/:categoryId", getCategoryProducts); // Get products by category
 
-router.use(verifyToken); // All admin routes require token verification
+router.get("/getMenuCategories", getMenuCategories);
+// router.use(verifyToken); // All admin routes require token verification
 router.post(
   "/createCategory",
   authAdmin, // Only admin can create category
@@ -48,14 +50,14 @@ router.put("/restoreCategory/:id", authAdmin, restoreCategory);
 
 // product fetching based on category and subcategory
 router.get(
-  '/categories/:slug',
-  getProductsByMainCategoryDirectSlug
+  '/products-main/:slug',
+  getProductsByMainCategoryDirectSlug // working..
 );
 router.get(
-  '/subcategories/:slug/products',
-  getProductsBySubCategorySlug
+  '/products-sub/:slug',
+  getProductsBySubCategorySlug // working..
 );
-router.get('/:slug', getCategoryWithSubsBySlug);
+router.get('/:slug', getCategoryWithSubsBySlug); // not used now
 router.get(
   '/:slug/products',
   getProductsByCategoryAndSubsSlug

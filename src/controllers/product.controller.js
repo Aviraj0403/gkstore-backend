@@ -921,3 +921,269 @@ export const getTotalProduct = async (req, res) => {
     });
   }
 };
+
+// get products based on category slug with pagination
+
+const getFakeOriginalPrice = (finalPrice, discountPercent) => {
+  return +(finalPrice / (1 - discountPercent / 100)).toFixed(2);
+};
+
+// Function to get products based on category slug
+export const getProductsByCategorySlug = async (req, res) => {
+  try {
+    const { categorySlug } = req.params;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const skip = (page - 1) * limit;
+
+    // Cache Key (Optimized for quick access)
+    const cacheKey = `category:${categorySlug}:page:${page}:limit:${limit}`;
+    const cachedData = await client.get(cacheKey);
+
+    if (cachedData) {
+      console.log('📦 Serving products from cache');
+      return res.json(JSON.parse(cachedData));
+    }
+
+    // Fetch the category by slug
+    const category = await Category.findOne({ slug: categorySlug, isActive: true, isDeleted: false }).lean();
+    if (!category) {
+      return res.status(404).json({ success: false, message: 'Category not found' });
+    }
+
+    // Aggregate products in the category, apply pagination, and fetch necessary fields
+    const aggregationPipeline = [
+      // Match products in the category with status 'Active'
+      {
+        $match: { category: category._id, status: 'Active' }
+      },
+      // Skip and limit for pagination
+      { $skip: skip },
+      { $limit: limit },
+      // Project necessary fields and calculate discount and price
+      {
+        $project: {
+          pimage: { $arrayElemAt: ['$pimages', 0] },  // Get the first image
+          name: 1,
+          discount: 1,
+          isBestSeller: 1,
+          description: 1,
+          rating: 1,
+          originalPrice: { $arrayElemAt: ['$variants.price', 0] },
+          discountValue: { $arrayElemAt: ['$variants.discount', 0] }
+        }
+      },
+      // Add discounted price
+      {
+        $addFields: {
+          discountedPrice: {
+            $cond: {
+              if: { $gt: ['$discountValue', 0] },  // If there is a discount
+              then: {
+                $subtract: [
+                  '$originalPrice',
+                  {
+                    $multiply: ['$originalPrice', { $divide: ['$discountValue', 100] }]
+                  }
+                ]
+              },
+              else: '$originalPrice'  // No discount
+            }
+          }
+        }
+      },
+      // Final projection to only return necessary data in response
+      {
+        $project: {
+          pimage: 1,
+          name: 1,
+          discount: 1,
+          isBestSeller: 1,
+          description: 1,
+          rating: 1,
+          discountedPrice: 1,
+          originalAmnt: '$originalPrice'
+        }
+      },
+      // Count the total number of products (used for pagination)
+      {
+        $facet: {
+          data: [{ $skip: skip }, { $limit: limit }],
+          totalCount: [{ $count: 'total' }]
+        }
+      }
+    ];
+
+    // Execute aggregation pipeline
+    const result = await Product.aggregate(aggregationPipeline);
+
+    // Extract total product count
+    const total = result[0].totalCount[0]?.total || 0;
+
+    // Format response
+    const response = {
+      success: true,
+      products: result[0].data,
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      }
+    };
+
+    // Cache the response (valid for 1 hour)
+    await client.set(cacheKey, JSON.stringify(response), { EX: 3600 });
+
+    res.json(response);
+  } catch (error) {
+    console.error('Error fetching products by category slug:', error);
+    res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+};
+
+
+export const getProductsByCategoryAndSubCategorySlug = async (req, res) => {
+  try {
+    // Log incoming parameters for debugging
+    // console.log('Fetching products by category and subcategory slug...', req.params);
+
+    const { categorySlug, subCategorySlug } = req.params;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const skip = (page - 1) * limit;
+
+    // Cache Key (for caching the response)
+    const cacheKey = `category:${categorySlug}:subcategory:${subCategorySlug}:page:${page}:limit:${limit}`;
+    const cachedData = await client.get(cacheKey);
+
+    if (cachedData) {
+      console.log('📦 Serving products from cache');
+      return res.json(JSON.parse(cachedData));
+    }
+
+    // Aggregation pipeline to fetch category and subcategory first
+    const categoryAndSubCategory = await Category.aggregate([
+      // Match category by slug
+      {
+        $match: { slug: categorySlug, isActive: true, isDeleted: false },
+      },
+      {
+        $lookup: {
+          from: 'categories',  // Lookup in the same 'categories' collection for subcategories
+          let: { parentCategoryId: '$_id' },
+          pipeline: [
+            {
+              $match: {
+                $expr: { $eq: ['$parentCategory', '$$parentCategoryId'] },
+                slug: subCategorySlug,
+                isActive: true,
+                isDeleted: false,
+              },
+            },
+            { $project: { _id: 1 } }, // Only select the subcategory ID
+          ],
+          as: 'subCategory',
+        },
+      },
+      { $unwind: { path: '$subCategory', preserveNullAndEmptyArrays: false } },
+      { $project: { categoryId: '$_id', subCategoryId: '$subCategory._id' } }, // Output category and subcategory IDs
+    ]);
+
+    if (categoryAndSubCategory.length === 0) {
+      return res.status(404).json({ success: false, message: 'Category or Subcategory not found' });
+    }
+
+    const { categoryId, subCategoryId } = categoryAndSubCategory[0];
+
+    // Now we fetch the products using these IDs
+    const aggregationPipeline = [
+      // Match products based on category and subcategory IDs
+      {
+        $match: {
+          category: categoryId,
+          subCategory: subCategoryId,
+          status: 'Active',
+        },
+      },
+      // Skip and limit to implement pagination
+      {
+        $skip: skip,
+      },
+      {
+        $limit: limit,
+      },
+      // Project only necessary fields
+      {
+        $project: {
+          pimage: { $arrayElemAt: ['$pimages', 0] },  // Get the first image
+          name: 1,
+          discount: 1,
+          isBestSeller: 1,
+          description: 1,
+          rating: 1,
+          'variants.price': 1,  // We need the price of variants to calculate discounts
+          'variants.discount': 1,  // Discount from variants
+        },
+      },
+      // Additional stage to calculate discounted prices
+      {
+        $addFields: {
+          discountedPrice: {
+            $cond: {
+              if: { $gt: [{ $size: '$variants' }, 0] },  // Ensure there is at least one variant
+              then: {
+                $subtract: [
+                  { $arrayElemAt: ['$variants.price', 0] },
+                  {
+                    $multiply: [
+                      { $arrayElemAt: ['$variants.price', 0] },
+                      { $divide: [{ $arrayElemAt: ['$variants.discount', 0] }, 100] },
+                    ],
+                  },
+                ],
+              },
+              else: 0,
+            },
+          },
+          originalAmnt: { $arrayElemAt: ['$variants.price', 0] },
+        },
+      },
+      // Calculate total count of matching products
+      {
+        $facet: {
+          data: [{ $skip: skip }, { $limit: limit }, { $project: { name: 1, description: 1, pimage: 1, discount: 1, rating: 1, discountedPrice: 1, originalAmnt: 1, isBestSeller: 1 } }],
+          totalCount: [{ $count: 'total' }],
+        },
+      },
+    ];
+
+    // Execute aggregation pipeline
+    const result = await Product.aggregate(aggregationPipeline);
+  //  console.log('Aggregation result:', result);
+    // Extract total product count
+    const total = result[0].totalCount[0]?.total || 0;
+
+    // Format the response based on the aggregation result
+    const response = {
+      success: true,
+      products: result[0].data,
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
+
+    // Cache the response (valid for 1 hour)
+    await client.set(cacheKey, JSON.stringify(response), { EX: 3600 });
+
+    // Return the response
+    res.json(response);
+  } catch (error) {
+    console.error('Error fetching products by category and subcategory slug:', error);
+    res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+};
+

@@ -88,7 +88,7 @@ export const createCategory = async (req, res) => {
       isDeleted: false,
     });
 
-    await Promise.all([clearCategoryAndCategoryProductsCache(), clearMenuCache()]);
+    await Promise.all([clearCategoryAndCategoryProductsCache(), clearMenuCache(),clearAllRedisCache()]);
     res.status(201).json({ success: true, category: newCategory });
   } catch (error) {
     console.error("Error creating category:", error);
@@ -461,11 +461,12 @@ export const getProductsByMainCategoryDirectSlug = async (req, res) => {
   try {
     const { slug } = req.params;
     const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 20; // Default to 20 for e-commerce
+    const limit = parseInt(req.query.limit) || 20;
     const skip = (page - 1) * limit;
 
     const cacheKey = `products_main_direct:${slug}:p${page}:l${limit}`;
     const cachedData = await client.get(cacheKey);
+
     if (cachedData) {
       console.log('📦 Serving direct main category products from cache');
       return res.json(JSON.parse(cachedData));
@@ -482,27 +483,25 @@ export const getProductsByMainCategoryDirectSlug = async (req, res) => {
       isDeleted: false
     }).lean();
 
+    // Ensure category is found
     if (!category) {
-      return res.status(404).json({ success: false, message: 'Main category not found' });
+      return res.status(404).json({ success: false, message: 'Category not found' });
     }
-
+    // Check the products for this category
     const products = await Product.find({
       category: category._id,
-      subCategory: null, // Direct products only (no subcategory)
-      status: 'Active'
+      status: 'Active',
     })
-      .populate('category', 'name slug')
-      .populate('subCategory', 'name slug')
-      .select('-__v')
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limit)
-      .lean();
-
+    .populate('category', 'name slug')
+    .populate('subCategory', 'name slug')
+    .select('-__v')
+    .sort({ createdAt: -1 })
+    .skip(skip)
+    .limit(limit)
+    .lean();
     const total = await Product.countDocuments({
       category: category._id,
-      subCategory: null,
-      status: 'Active'
+      status: 'Active',
     });
 
     const response = {
@@ -512,17 +511,19 @@ export const getProductsByMainCategoryDirectSlug = async (req, res) => {
         total,
         page,
         limit,
-        totalPages: Math.ceil(total / limit)
-      }
+        totalPages: Math.ceil(total / limit),
+      },
     };
 
     await client.set(cacheKey, JSON.stringify(response), { EX: CACHE_EXPIRATION });
-    res.json(response);
+    return res.json(response);
   } catch (error) {
-    console.error('Error fetching direct main category products:', error);
-    res.status(500).json({ success: false, message: 'Internal server error' });
+    console.error('❌ Error fetching products:', error);
+    return res.status(500).json({ success: false, message: 'Internal server error' });
   }
 };
+
+
 
 // 2. Get all products in a subcategory - using slug
 export const getProductsBySubCategorySlug = async (req, res) => {
@@ -534,49 +535,59 @@ export const getProductsBySubCategorySlug = async (req, res) => {
 
     const cacheKey = `products_sub:${slug}:p${page}:l${limit}`;
     const cachedData = await client.get(cacheKey);
+    
     if (cachedData) {
       console.log('📦 Serving subcategory products from cache');
       return res.json(JSON.parse(cachedData));
     }
 
+    // Validate slug
     if (!slug) {
       return res.status(400).json({ success: false, message: 'Slug is required' });
     }
 
-    const category = await Category.findOne({
+    // Look for the subcategory in the database
+    const subCategory = await Category.findOne({
       slug,
       type: 'Sub',
       isActive: true,
       isDeleted: false
     }).lean();
 
-    if (!category) {
+    if (!subCategory) {
       return res.status(404).json({ success: false, message: 'Subcategory not found' });
     }
 
+    // console.log('Subcategory found:', subCategory); // Debugging line
+
+    // Query for products with matching category or subcategory
     const products = await Product.find({
       $or: [
-        { category: category._id },
-        { subCategory: category._id }
+        { category: subCategory._id },
+        { subCategory: subCategory._id }
       ],
       status: 'Active'
     })
-      .populate('category', 'name slug')
-      .populate('subCategory', 'name slug')
-      .select('-__v')
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limit)
-      .lean();
+    .populate('category', 'name slug')
+    .populate('subCategory', 'name slug')
+    .select('-__v')
+    .sort({ createdAt: -1 })
+    .skip(skip)
+    .limit(limit)
+    .lean();
 
+    // console.log('Fetched products:', products); // Debugging line
+
+    // Count total products with the same filter
     const total = await Product.countDocuments({
       $or: [
-        { category: category._id },
-        { subCategory: category._id }
+        { category: subCategory._id },
+        { subCategory: subCategory._id }
       ],
       status: 'Active'
     });
 
+    // Prepare response
     const response = {
       success: true,
       products,
@@ -588,13 +599,18 @@ export const getProductsBySubCategorySlug = async (req, res) => {
       }
     };
 
+    // Cache the response for future use
     await client.set(cacheKey, JSON.stringify(response), { EX: CACHE_EXPIRATION });
-    res.json(response);
+
+    // Send response
+    return res.json(response);
+
   } catch (error) {
     console.error('Error fetching subcategory products:', error);
     res.status(500).json({ success: false, message: 'Internal server error' });
   }
 };
+
 
 // 3. Get all products in a main category and its subcategories - using slug
 export const getProductsByCategoryAndSubsSlug = async (req, res) => {
@@ -676,7 +692,7 @@ export const getProductsByCategoryAndSubsSlug = async (req, res) => {
   }
 };
 
-// GET CATEGORY WITH SUBCATEGORIES BY SLUG
+// GET CATEGORY WITH SUBCATEGORIES BY SLUG --not used
 export const getCategoryWithSubsBySlug = async (req, res) => {
   try {
     const { slug } = req.params;
@@ -724,4 +740,66 @@ export const getCategoryWithSubsBySlug = async (req, res) => {
     res.status(500).json({ success: false, message: 'Internal server error' });
   }
 };
+
+// GET MENU CATEGORIES WITH SUBCATEGORIES --HEADER MENU--
+
+export const getMenuCategories = async (req, res) => {
+  try {
+    const cacheKey = 'menuCategories';
+    const cachedData = await client.get(cacheKey);
+    
+    if (cachedData) {
+      console.log('Serving menu categories from cache');
+      return res.json(JSON.parse(cachedData));
+    }
+
+    // Use aggregation to join categories and subcategories, and include images
+    const menuCategories = await Category.aggregate([
+      {
+        $match: {
+          isActive: true,
+          isDeleted: false,
+          parentCategory: null // Only main categories
+        }
+      },
+      {
+        $lookup: {
+          from: 'categories', // Join with the same collection for subcategories
+          localField: '_id',
+          foreignField: 'parentCategory',
+          as: 'subcategories'
+        }
+      },
+      {
+        $project: {
+          name: 1,
+          slug: 1,
+          image: 1, // Include image field
+          subcategories: {
+            name: 1,
+            slug: 1,
+          }
+        }
+      },
+      {
+        $sort: {
+          displayOrder: 1,
+        }
+      }
+    ]);
+
+    const response = { success: true, categories: menuCategories };
+
+    // Cache the result for faster subsequent access
+    await client.set(cacheKey, JSON.stringify(response), { EX: 3600 }); // Adjust cache time as needed
+
+    return res.json(response);
+    
+  } catch (error) {
+    console.error("Error fetching menu categories:", error);
+    return res.status(500).json({ success: false, message: "Internal server error." });
+  }
+};
+
+
 

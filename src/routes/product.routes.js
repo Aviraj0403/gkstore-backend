@@ -15,6 +15,8 @@ import {
   getUserProduct,
   getProductByCategory,
   getTotalProduct,
+  getProductsByCategorySlug,
+  getProductsByCategoryAndSubCategorySlug
 } from "../controllers/product.controller.js";
 import { verifyToken } from "../middlewares/verifyToken.js";
 import { authAdmin } from "../middlewares/authAdmin.js"; // optional – create if needed
@@ -28,7 +30,7 @@ router.get("/getProductByCategory", getProductByCategory);           // by categ
 router.get("/getTotalProduct", getTotalProduct);                   // total count
 router.get("/getAllProduct", getAllProduct);                          // cached list (fallback)
 
-router.use(verifyToken);                     // <-- all admin routes need auth
+// router.use(verifyToken);                     // <-- all admin routes need auth
 
 router.post(
   "/createProduct",
@@ -54,5 +56,12 @@ router.patch(
 router.delete("/deleteProduct/:id", authAdmin, deleteProduct);
 
 router.get("/getAdminProduct", authAdmin, getAdminProduct);   
-router.get("/getProduct/:productId", authAdmin, getProduct);  
+router.get("/getProduct/:productId", authAdmin, getProduct);
+
+// get product for user by slug
+router.get('/:categorySlug', getProductsByCategorySlug);
+
+// Route to get products by category and subcategory slug
+router.get('/:categorySlug/:subCategorySlug', getProductsByCategoryAndSubCategorySlug);
+
 export default router;
