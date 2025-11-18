@@ -8,6 +8,7 @@ const productSchema = new mongoose.Schema({
     required: [true, 'Product name is required'], 
     trim: true,
     minlength: [3, 'Product name must be at least 3 characters long'],
+    unique: true,
   },
   slug: {
     type: String,

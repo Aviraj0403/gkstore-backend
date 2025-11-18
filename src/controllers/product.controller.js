@@ -380,6 +380,154 @@ export const getAllProduct = async (req, res) => {
   }
 };
 
+export const getMiniProductVersion = async (req, res) => {
+  try {
+    const {
+      page = 1,
+      limit = 12,
+      search = '',
+      category,
+      isHotProduct,
+      isBestSeller,
+      isFeatured
+    } = req.query;
+
+    const pageNum = Math.max(1, Number(page));
+    const limitNum = Math.min(100, Number(limit));
+    const skip = (pageNum - 1) * limitNum;
+
+    // Cache Key (Optimized for quick access)
+    const cacheKey = `mini-products:${search || 'all'}:${category || 'none'}:${isHotProduct || 'none'}:${isBestSeller || 'none'}:${isFeatured || 'none'}:${pageNum}:${limitNum}`;
+
+    try {
+      const cachedProducts = await client.get(cacheKey);
+
+      if (cachedProducts) {
+        console.log('📦 Serving from Redis cache');
+        return res.json({
+          success: true,
+          products: JSON.parse(cachedProducts),
+        });
+      }
+    } catch (err) {
+      console.warn('⚠️ Redis read failed:', err.message);
+    }
+
+    // Build aggregation pipeline for mini version with filters
+    let pipeline = [];
+    let matchStage = {};
+
+    // Apply search filter
+    if (search) matchStage.$text = { $search: search };
+
+    // Apply category filter (if category is passed)
+    if (category && mongoose.isValidObjectId(category)) {
+      matchStage.category = new mongoose.Types.ObjectId(category);
+    }
+
+    // Apply additional filters for hot products, best sellers, and featured products
+    if (isHotProduct === 'true') matchStage.isHotProduct = true;
+    if (isBestSeller === 'true') matchStage.isBestSeller = true;
+    if (isFeatured === 'true') matchStage.isFeatured = true;
+
+    // Add the match stage if any filters are present
+    if (Object.keys(matchStage).length > 0) {
+      pipeline.push({ $match: matchStage });
+    }
+
+    // Optional: Adding a text score for search relevance if search is applied
+    if (search) {
+      pipeline.push({ $addFields: { score: { $meta: 'textScore' } } });
+    }
+
+    // Sorting logic (by relevance for search, otherwise by createdAt)
+    pipeline.push({
+      $sort: search ? { score: { $meta: 'textScore' }, createdAt: -1 } : { createdAt: -1 }
+    });
+
+    // Pagination (skip and limit)
+    pipeline.push({ $skip: skip }, { $limit: limitNum });
+
+    // Project only the necessary fields for mini version, including only the first variant with size, price, and realPrice
+    pipeline.push({
+      $project: {
+        name: 1,
+        slug: 1,
+        description: 1,
+        discount: 1,
+        rating: 1,
+        isBestSeller: 1,
+        pimage: { $arrayElemAt: ["$pimages", 0] }, // Get the first image
+        variants: { 
+          $arrayElemAt: ["$variants", 0] // Get the first variant
+        },
+      }
+    });
+
+    // Add realPrice to the first variant
+    pipeline.push({
+      $addFields: {
+        variants: {
+          realPrice: {
+            $multiply: [
+              "$variants.price",
+              { $add: [1, { $divide: ["$discount", 100] }] }  // Add the discount percentage to the original price
+            ]
+          }
+        }
+      }
+    });
+
+    // Further reduce the `variants` field to include only size, price, and realPrice
+    pipeline.push({
+      $project: {
+        name: 1,
+        slug: 1,
+        description: 1,
+        discount: 1,
+        rating: 1,
+        isBestSeller: 1,
+        pimage: 1,
+        variants: {
+          size: 1,
+          price: 1,
+          realPrice: 1,
+        },
+      }
+    });
+
+    // Fetch data from MongoDB
+    const products = await Product.aggregate(pipeline);
+
+    // Fetch total product count (without pagination)
+    const total = await Product.countDocuments(matchStage);
+
+    // Format response
+    const response = {
+      success: true,
+      products,
+      pagination: {
+        total,
+        page: pageNum,
+        limit: limitNum,
+        totalPages: Math.ceil(total / limitNum),
+      },
+    };
+
+    // Cache the response for future use (valid for 1 hour)
+    try {
+      await client.set(cacheKey, JSON.stringify(products), { EX: 3600 });
+    } catch (err) {
+      console.warn('⚠️ Redis write failed:', err.message);
+    }
+
+    return res.json(response);
+  } catch (error) {
+    console.error('❌ Error fetching products:', error);
+    res.status(500).json({ success: false, message: 'An error occurred while fetching products.' });
+  }
+};
+
 export const searchProducts = async (req, res) => {
   try {
     const {
@@ -922,12 +1070,7 @@ export const getTotalProduct = async (req, res) => {
   }
 };
 
-// get products based on category slug with pagination
-
-const getFakeOriginalPrice = (finalPrice, discountPercent) => {
-  return +(finalPrice / (1 - discountPercent / 100)).toFixed(2);
-};
-
+// ----------------------------------------
 // Function to get products based on category slug
 export const getProductsByCategorySlug = async (req, res) => {
   try {
@@ -953,14 +1096,11 @@ export const getProductsByCategorySlug = async (req, res) => {
 
     // Aggregate products in the category, apply pagination, and fetch necessary fields
     const aggregationPipeline = [
-      // Match products in the category with status 'Active'
       {
         $match: { category: category._id, status: 'Active' }
       },
-      // Skip and limit for pagination
       { $skip: skip },
       { $limit: limit },
-      // Project necessary fields and calculate discount and price
       {
         $project: {
           pimage: { $arrayElemAt: ['$pimages', 0] },  // Get the first image
@@ -970,30 +1110,34 @@ export const getProductsByCategorySlug = async (req, res) => {
           isBestSeller: 1,
           description: 1,
           rating: 1,
-          originalPrice: { $arrayElemAt: ['$variants.price', 0] },
-          discountValue: { $arrayElemAt: ['$variants.discount', 0] }
+          variants: 1,  // Include variants
         }
       },
-      // Add discounted price
+      // Add realPrice: original price + discount
       {
         $addFields: {
-          discountedPrice: {
-            $cond: {
-              if: { $gt: ['$discountValue', 0] },  // If there is a discount
-              then: {
-                $subtract: [
-                  '$originalPrice',
+          variants: {
+            $map: {
+              input: "$variants",
+              as: "variant",
+              in: {
+                $mergeObjects: [
+                  "$$variant",
                   {
-                    $multiply: ['$originalPrice', { $divide: ['$discountValue', 100] }]
+                    realPrice: {
+                      $multiply: [
+                        "$$variant.price",
+                        { $add: [1, { $divide: ["$discount", 100] }] }  // Add the discount percentage to the original price
+                      ]
+                    }
                   }
                 ]
-              },
-              else: '$originalPrice'  // No discount
+              }
             }
           }
         }
       },
-      // Final projection to only return necessary data in response
+      // Get only the first variant from each product
       {
         $project: {
           pimage: 1,
@@ -1003,11 +1147,26 @@ export const getProductsByCategorySlug = async (req, res) => {
           isBestSeller: 1,
           description: 1,
           rating: 1,
-          discountedPrice: 1,
-          originalAmnt: '$originalPrice'
+          variants: { $arrayElemAt: ["$variants", 0] },  // Get only the first variant
         }
       },
-      // Count the total number of products (used for pagination)
+      // Final projection to return only necessary data
+      {
+        $project: {
+          pimage: 1,
+          name: 1,
+          slug: 1,
+          discount: 1,
+          isBestSeller: 1,
+          description: 1,
+          rating: 1,
+          variants: {
+            size: 1,
+            price: 1,
+            realPrice: 1,  // Only include size, price, and realPrice
+          },
+        }
+      },
       {
         $facet: {
           data: [{ $skip: skip }, { $limit: limit }],
@@ -1043,19 +1202,14 @@ export const getProductsByCategorySlug = async (req, res) => {
     res.status(500).json({ success: false, message: 'Internal server error' });
   }
 };
-
-
 export const getProductsByCategoryAndSubCategorySlug = async (req, res) => {
   try {
-    // Log incoming parameters for debugging
-    // console.log('Fetching products by category and subcategory slug...', req.params);
-
     const { categorySlug, subCategorySlug } = req.params;
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 20;
     const skip = (page - 1) * limit;
 
-    // Cache Key (for caching the response)
+    // Cache Key (Optimized for quick access)
     const cacheKey = `category:${categorySlug}:subcategory:${subCategorySlug}:page:${page}:limit:${limit}`;
     const cachedData = await client.get(cacheKey);
 
@@ -1064,9 +1218,8 @@ export const getProductsByCategoryAndSubCategorySlug = async (req, res) => {
       return res.json(JSON.parse(cachedData));
     }
 
-    // Aggregation pipeline to fetch category and subcategory first
+    // Fetch the category and subcategory details by their slugs
     const categoryAndSubCategory = await Category.aggregate([
-      // Match category by slug
       {
         $match: { slug: categorySlug, isActive: true, isDeleted: false },
       },
@@ -1083,15 +1236,13 @@ export const getProductsByCategoryAndSubCategorySlug = async (req, res) => {
                 isDeleted: false,
               },
             },
-            { $project: { _id: 1 ,
-              
-            } }, // Only select the subcategory ID
+            { $project: { _id: 1 } },  // Only select the subcategory ID
           ],
           as: 'subCategory',
         },
       },
       { $unwind: { path: '$subCategory', preserveNullAndEmptyArrays: false } },
-      { $project: { categoryId: '$_id', subCategoryId: '$subCategory._id' } }, // Output category and subcategory IDs
+      { $project: { categoryId: '$_id', subCategoryId: '$subCategory._id' } },
     ]);
 
     if (categoryAndSubCategory.length === 0) {
@@ -1100,9 +1251,8 @@ export const getProductsByCategoryAndSubCategorySlug = async (req, res) => {
 
     const { categoryId, subCategoryId } = categoryAndSubCategory[0];
 
-    // Now we fetch the products using these IDs
+    // Now, fetch the products based on the categoryId and subCategoryId
     const aggregationPipeline = [
-      // Match products based on category and subcategory IDs
       {
         $match: {
           category: categoryId,
@@ -1110,14 +1260,8 @@ export const getProductsByCategoryAndSubCategorySlug = async (req, res) => {
           status: 'Active',
         },
       },
-      // Skip and limit to implement pagination
-      {
-        $skip: skip,
-      },
-      {
-        $limit: limit,
-      },
-      // Project only necessary fields
+      { $skip: skip },
+      { $limit: limit },
       {
         $project: {
           pimage: { $arrayElemAt: ['$pimages', 0] },  // Get the first image
@@ -1127,49 +1271,80 @@ export const getProductsByCategoryAndSubCategorySlug = async (req, res) => {
           isBestSeller: 1,
           description: 1,
           rating: 1,
-          'variants.price': 1,  // We need the price of variants to calculate discounts
-          'variants.discount': 1,  // Discount from variants
+          variants: 1,  // Include variants in the projection
         },
       },
-      // Additional stage to calculate discounted prices
+      // Add realPrice (calculated by original price + discount)
       {
         $addFields: {
-          discountedPrice: {
-            $cond: {
-              if: { $gt: [{ $size: '$variants' }, 0] },  // Ensure there is at least one variant
-              then: {
-                $subtract: [
-                  { $arrayElemAt: ['$variants.price', 0] },
+          variants: {
+            $map: {
+              input: '$variants',
+              as: 'variant',
+              in: {
+                $mergeObjects: [
+                  '$$variant',
                   {
-                    $multiply: [
-                      { $arrayElemAt: ['$variants.price', 0] },
-                      { $divide: [{ $arrayElemAt: ['$variants.discount', 0] }, 100] },
-                    ],
-                  },
-                ],
-              },
-              else: 0,
-            },
-          },
-          originalAmnt: { $arrayElemAt: ['$variants.price', 0] },
-        },
+                    realPrice: {
+                      $multiply: [
+                        '$$variant.price',
+                        { $add: [1, { $divide: [{ $ifNull: ['$$variant.discount', 0] }, 100] }] }  // Add the discount percentage to the original price
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
       },
-      // Calculate total count of matching products
+      // Get only the first variant and return only the size, price, and realPrice
+      {
+        $project: {
+          pimage: 1,
+          name: 1,
+          slug: 1,
+          discount: 1,
+          isBestSeller: 1,
+          description: 1,
+          rating: 1,
+          variants: {
+            $arrayElemAt: ["$variants", 0],  // Get the first variant
+          },
+        }
+      },
+      {
+        $project: {
+          pimage: 1,
+          name: 1,
+          slug: 1,
+          discount: 1,
+          isBestSeller: 1,
+          description: 1,
+          rating: 1,
+          variants: {
+            size: 1,
+            price: 1,
+            realPrice: 1,  // Only include size, price, and realPrice
+          },
+        }
+      },
+      // Calculate the total number of matching products
       {
         $facet: {
-          data: [{ $skip: skip }, { $limit: limit }, { $project: { name: 1, slug: 1, description: 1, pimage: 1, discount: 1, rating: 1, discountedPrice: 1, originalAmnt: 1, isBestSeller: 1 } }],
+          data: [{ $skip: skip }, { $limit: limit }],
           totalCount: [{ $count: 'total' }],
         },
       },
     ];
 
-    // Execute aggregation pipeline
+    // Execute the aggregation pipeline to fetch products
     const result = await Product.aggregate(aggregationPipeline);
-  //  console.log('Aggregation result:', result);
-    // Extract total product count
+
+    // Extract the total count of products
     const total = result[0].totalCount[0]?.total || 0;
 
-    // Format the response based on the aggregation result
+    // Format the response
     const response = {
       success: true,
       products: result[0].data,
@@ -1191,4 +1366,88 @@ export const getProductsByCategoryAndSubCategorySlug = async (req, res) => {
     res.status(500).json({ success: false, message: 'Internal server error' });
   }
 };
+
+
+
+
+export const getSingleProduct = async (req, res) => {
+  try {
+    const { productSlug } = req.params; // Assuming slug is passed in the URL
+    const cacheKey = `single-product:${productSlug}`;
+
+    // Try to fetch data from cache
+    const cachedData = await client.get(cacheKey);
+    if (cachedData) {
+      console.log('📦 Serving product from cache');
+      return res.json(JSON.parse(cachedData));
+    }
+
+    // Fetch the product by its slug
+    const product = await Product.findOne({ slug: productSlug, status: 'Active' })
+      .populate('category subCategory') // Populate category and subcategory details
+      .lean(); // Convert to plain JS object to modify fields if needed
+
+    if (!product) {
+      return res.status(404).json({ success: false, message: 'Product not found' });
+    }
+
+    // Process the variants to include realPrice (price + discount)
+    const processedVariants = product.variants.map(variant => {
+      const realPrice = variant.price * (1 + product.discount / 100); // Apply discount to the price
+      return {
+        ...variant,
+        realPrice, // Adding realPrice field
+      };
+    });
+
+    // Prepare the response with additional information
+    const response = {
+      success: true,
+      product: {
+        _id: product._id,
+        name: product.name,
+        slug: product.slug,
+        category: {
+          _id: product.category._id,
+          name: product.category.name,
+          slug: product.category.slug,
+        },
+        subCategory: {
+          _id: product.subCategory._id,
+          name: product.subCategory.name,
+          // slug: product.subCategory.slug,
+        },
+        brand: product.brand,
+        description: product.description,
+        productCode: product.productCode,
+        variants: processedVariants, // Include variants with realPrice
+        pimages: product.pimages, // Array of images
+        discount: product.discount,
+        rating: product.rating,
+        reviewCount: product.reviewCount,
+        status: product.status,
+        isFeatured: product.isFeatured,
+        isHotProduct: product.isHotProduct,
+        isBestSeller: product.isBestSeller,
+        tags: product.tags,
+        additionalInfo: product.additionalInfo,
+        reviews: product.reviews,
+        createdBy: product.createdBy,
+        createdAt: product.createdAt,
+        updatedAt: product.updatedAt,
+      },
+    };
+
+    // Cache the product data for 1 hour (3600 seconds)
+    await client.set(cacheKey, JSON.stringify(response), { EX: 3600 });
+
+    return res.json(response);
+
+  } catch (error) {
+    console.error('Error fetching product:', error);
+    res.status(500).json({ success: false, message: 'An error occurred while fetching the product.' });
+  }
+};
+
+
 

@@ -16,20 +16,30 @@ import {
   getProductByCategory,
   getTotalProduct,
   getProductsByCategorySlug,
-  getProductsByCategoryAndSubCategorySlug
+  getProductsByCategoryAndSubCategorySlug,
+  getMiniProductVersion,
+  getSingleProduct
 } from "../controllers/product.controller.js";
 import { verifyToken } from "../middlewares/verifyToken.js";
 import { authAdmin } from "../middlewares/authAdmin.js"; // optional – create if needed
 import upload from '../middlewares/upload.js';
 const router = express.Router();
+
+//userprofile
 router.get("/getUserProducts", getUserProducts);                    // paginated + filters
-router.get("/user/:productId", getUserProduct);          // single product (user view)
+router.get("/user/:productId", getUserProduct); 
+
+// customer side search and fetch
 router.get("/searchProducts", searchProducts);                   // search with filters
 router.get("/suggestions", getSearchSuggestions);        // autocomplete
-router.get("/getProductByCategory", getProductByCategory);           // by category
-router.get("/getTotalProduct", getTotalProduct);                   // total count
-router.get("/getAllProduct", getAllProduct);                          // cached list (fallback)
+router.get("/getProductByCategory", getProductByCategory);   
+router.get("/getAllProduct", getAllProduct);
+router.get("/getminiversion",getMiniProductVersion)    //rambaan
+router.get('/getProduct/:productSlug', getSingleProduct);
 
+
+// admin dashboard
+router.get("/getTotalProduct", getTotalProduct);
 // router.use(verifyToken);                     // <-- all admin routes need auth
 
 router.post(
