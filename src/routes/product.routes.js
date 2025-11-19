@@ -44,6 +44,7 @@ router.get("/getTotalProduct", getTotalProduct);
 
 router.post(
   "/createProduct",
+  verifyToken,
   authAdmin,                         // <-- only admin
   upload.array("pimages", 5),                // max 5 images
   createProduct
@@ -51,6 +52,7 @@ router.post(
 
 router.put(
   "/updateProduct/:productId",
+  verifyToken,
   authAdmin,
   upload.array("images", 5),
   updateProduct
@@ -58,15 +60,16 @@ router.put(
 
 router.patch(
   "/updateProductImages/:productId/images",
+  verifyToken,
   authAdmin,
   upload.array("images", 5),
   updateProductImages
 );
 
-router.delete("/deleteProduct/:id", authAdmin, deleteProduct);
+router.delete("/deleteProduct/:id", verifyToken ,authAdmin, deleteProduct);
 
-router.get("/getAdminProduct", authAdmin, getAdminProduct);   
-router.get("/getProduct/:productId", authAdmin, getProduct);
+router.get("/getAdminProduct", verifyToken , authAdmin, getAdminProduct);   
+router.get("/getProduct/:productId", verifyToken ,authAdmin, getProduct);
 
 // get product for user by slug
 router.get('/:categorySlug', getProductsByCategorySlug);
