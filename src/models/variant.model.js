@@ -9,7 +9,7 @@ const variantSchema = new mongoose.Schema({
   },
   color: { 
     type: String, 
-    required: [true, 'Color is required'],
+    required: [false, 'Color is required'],
     trim: true
   },
   price: { 

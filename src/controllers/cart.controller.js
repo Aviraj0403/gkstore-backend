@@ -1,7 +1,6 @@
+// controllers/cart.controller.js
 import Cart from '../models/cart.model.js';
 import Product from '../models/product.model.js';
-import Variant from '../models/variant.model.js';
-import mongoose from 'mongoose';
 
 /**
  * @desc Get current user's cart
@@ -11,54 +10,44 @@ import mongoose from 'mongoose';
 export const getUserCart = async (req, res) => {
   try {
     const cart = await Cart.findOne({ user: req.user.id })
-      .populate({
-        path: 'items.product',
-        select: 'name pimages brand slug variants discount',
-      })
-      .populate('items.selectedVariant.variantId')
+      .populate('items.product', 'name slug pimages discount')
       .lean();
 
-    if (!cart) {
+    if (!cart || cart.items.length === 0) {
       return res.json({
         success: true,
         cartItems: [],
-        userId: req.user.id,
-        updatedAt: null,
         totalPrice: 0,
       });
     }
 
-    // Map through cart items to calculate price after discount
     const cartItems = cart.items.map(item => {
-      const variant = item.selectedVariant;
-      const priceAfterDiscount = item.product.discount > 0
-        ? variant.price - (variant.price * item.product.discount / 100)
-        : variant.price;
+      const price = item.selectedVariant.price;
+      const discount = item.product.discount || 0;
+      // const finalPrice = price + (price * discount / 100); // +discount%
 
       return {
         productId: item.product._id,
         name: item.product.name,
-        brand: item.product.brand,
-        slug: item.product.slug,
+        // slug: item.product.slug,
         image: item.product.pimages[0],
-        selectedVariant: {
-          variantId: variant._id,
-          size: variant.size,
-          color: variant.color,
-          price: variant.price,
-          priceAfterDiscount: Number(priceAfterDiscount.toFixed(2)),
-        },
+        size: item.selectedVariant.size,
+        price: price,
+        discount: discount,
+        // priceAfterDiscount: Number(finalPrice.toFixed(2)),
         quantity: item.quantity,
+        subtotal: Number((price * item.quantity).toFixed(2)),
       };
     });
+
+    const totalPrice = cartItems.reduce((sum, item) => sum + item.subtotal, 0);
 
     res.json({
       success: true,
       cartItems,
-      userId: cart.user,
-      updatedAt: cart.updatedAt,
-      totalPrice: Number(cart.totalPrice.toFixed(2)),
+      totalPrice: Number(totalPrice.toFixed(2)),
     });
+
   } catch (error) {
     console.error('Get Cart Error:', error);
     res.status(500).json({ success: false, message: 'Failed to get cart' });
@@ -72,62 +61,45 @@ export const getUserCart = async (req, res) => {
  */
 export const addToCart = async (req, res) => {
   try {
-    const { productId, variantId, quantity = 1 } = req.body;
+    const { productId, size, quantity = 1 } = req.body;
 
-    // Validate input
-    if (!productId || !variantId || !mongoose.Types.ObjectId.isValid(productId) || !mongoose.Types.ObjectId.isValid(variantId)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Valid productId and variantId are required.',
-      });
+    if (!productId || !size) {
+      return res.status(400).json({ success: false, message: 'productId and size are required' });
     }
 
-    if (quantity < 1) {
-      return res.status(400).json({
-        success: false,
-        message: 'Quantity must be at least 1.',
-      });
+    const product = await Product.findById(productId).select('variants discount stockQty');
+    console.log('Product fetched for cart:', product);
+    if (!product) return res.status(404).json({ success: false, message: 'Product not found' });
+
+    const variant = product.variants.find(v => v.size.trim() === size.trim());
+    if (!variant) return res.status(400).json({ success: false, message: 'Size not found' });
+
+    if (variant.stockQty < quantity) {
+      return res.status(400).json({ success: false, message: 'Out of stock' });
     }
-
-    // Fetch product and variant
-    const product = await Product.findById(productId);
-    const variant = await Variant.findById(variantId);
-
-    if (!product || !variant) {
-      return res.status(404).json({ success: false, message: 'Product or variant not found.' });
-    }
-
-    const priceAfterDiscount = product.discount > 0
-      ? variant.price - (variant.price * product.discount / 100)
-      : variant.price;
-
-    const selectedVariant = {
-      variantId: variant._id,
-      size: variant.size,
-      color: variant.color,
-      price: variant.price,
-      priceAfterDiscount: Number(priceAfterDiscount.toFixed(2)),
-    };
 
     let cart = await Cart.findOne({ user: req.user.id });
     if (!cart) {
       cart = new Cart({ user: req.user.id, items: [] });
     }
 
-    // Find existing item by product + variantId
-    const itemIndex = cart.items.findIndex(
-      item =>
-        item.product.toString() === productId &&
-        item.selectedVariant.variantId.toString() === variantId
+    const existingItemIndex = cart.items.findIndex(item =>
+      item.product.toString() === productId &&
+      item.selectedVariant.size.trim() === size.trim()
     );
 
-    if (itemIndex > -1) {
-      cart.items[itemIndex].quantity += quantity;
+    if (existingItemIndex > -1) {
+      cart.items[existingItemIndex].quantity += quantity;
     } else {
       cart.items.push({
         product: productId,
-        selectedVariant,
-        quantity,
+        selectedVariant: {
+          size: variant.size,
+          price: variant.price,
+          stockQty: variant.stockQty,
+          packaging: variant.packaging || 'N/A'
+        },
+        quantity
       });
     }
 
@@ -135,71 +107,58 @@ export const addToCart = async (req, res) => {
 
     res.json({
       success: true,
-      message: 'Item added to cart',
-      cart,
+      message: 'Added to cart successfully',
     });
+
   } catch (error) {
     console.error('Add to Cart Error:', error);
-    res.status(500).json({ success: false, message: 'Failed to add to cart' });
+    res.status(500).json({ success: false, message: 'Failed to add item' });
   }
 };
 
 /**
  * @desc Update item quantity in cart
- * @route PUT /api/cart/:productId/:variantId
+ * @route PUT /api/cart/:productId/:size
  * @access Private
  */
 export const updateCartItem = async (req, res) => {
   try {
-    const { productId, variantId } = req.params;
+    const { productId, size } = req.params;
     const { quantity } = req.body;
 
-    if (quantity < 0) {
-      return res.status(400).json({ success: false, message: 'Quantity cannot be negative.' });
+    if (!quantity || quantity < 1) {
+      return res.status(400).json({ success: false, message: 'Valid quantity required' });
     }
 
-    const cart = await Cart.findOne({ user: req.user.id });
-    if (!cart) {
-      return res.status(404).json({ success: false, message: 'Cart not found.' });
-    }
-
-    const itemIndex = cart.items.findIndex(
-      item =>
-        item.product.toString() === productId &&
-        item.selectedVariant.variantId.toString() === variantId
+    const result = await Cart.updateOne(
+      {
+        user: req.user.id,
+        'items.product': productId,
+        'items.selectedVariant.size': size
+      },
+      { $set: { 'items.$.quantity': quantity } }
     );
 
-    if (itemIndex === -1) {
-      return res.status(404).json({ success: false, message: 'Item not found in cart.' });
+    if (result.modifiedCount === 0) {
+      return res.status(404).json({ success: false, message: 'Item not found in cart' });
     }
 
-    if (quantity === 0) {
-      cart.items.splice(itemIndex, 1);
-    } else {
-      cart.items[itemIndex].quantity = quantity;
-    }
+    res.json({ success: true, message: 'Quantity updated' });
 
-    await cart.save();
-
-    res.json({
-      success: true,
-      message: quantity === 0 ? 'Item removed' : 'Quantity updated',
-      cart,
-    });
   } catch (error) {
-    console.error('Update Cart Item Error:', error);
-    res.status(500).json({ success: false, message: 'Failed to update cart' });
+    console.error('Update Cart Error:', error);
+    res.status(500).json({ success: false, message: 'Failed to update' });
   }
 };
 
 /**
  * @desc Remove specific item from cart
- * @route DELETE /api/cart/:productId/:variantId
+ * @route DELETE /api/cart/:productId/:size
  * @access Private
  */
 export const removeCartItem = async (req, res) => {
   try {
-    const { productId, variantId } = req.params;
+    const { productId, size } = req.params;
 
     const result = await Cart.updateOne(
       { user: req.user.id },
@@ -207,20 +166,21 @@ export const removeCartItem = async (req, res) => {
         $pull: {
           items: {
             product: productId,
-            'selectedVariant.variantId': variantId,
-          },
-        },
+            'selectedVariant.size': size
+          }
+        }
       }
     );
 
     if (result.modifiedCount === 0) {
-      return res.status(404).json({ success: false, message: 'Item not found in cart.' });
+      return res.status(404).json({ success: false, message: 'Item not found' });
     }
 
     res.json({ success: true, message: 'Item removed from cart' });
+
   } catch (error) {
-    console.error('Remove Cart Item Error:', error);
-    res.status(500).json({ success: false, message: 'Failed to remove item' });
+    console.error('Remove Cart Error:', error);
+    res.status(500).json({ success: false, message: 'Failed to remove' });
   }
 };
 
@@ -237,6 +197,7 @@ export const clearCart = async (req, res) => {
     );
 
     res.json({ success: true, message: 'Cart cleared successfully' });
+
   } catch (error) {
     console.error('Clear Cart Error:', error);
     res.status(500).json({ success: false, message: 'Failed to clear cart' });

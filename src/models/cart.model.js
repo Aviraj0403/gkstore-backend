@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import variantSchema from './variant.model.js';
 const cartItemSchema = new mongoose.Schema(
   {
     product: {
@@ -6,29 +7,7 @@ const cartItemSchema = new mongoose.Schema(
       ref: 'Product', 
       required: true,
     },
-    selectedVariant: {
-      variantId: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'Variant',  
-        required: true,
-      },
-      name: { 
-        type: String, 
-        required: true 
-      },
-      size: { 
-        type: String, 
-        required: true  
-      },
-      price: { 
-        type: Number, 
-        required: true 
-      },
-      priceAfterDiscount: { 
-        type: Number, 
-        required: false,
-      },
-    },
+    selectedVariant: variantSchema,
     quantity: {
       type: Number,
       required: true,
@@ -45,7 +24,7 @@ const cartSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',  // Reference to the User model
       required: true,
-      // unique: true, // one cart per user
+      unique: true, // one cart per user
     },
     items: [cartItemSchema],
     updatedAt: { type: Date, default: Date.now },
@@ -55,16 +34,8 @@ const cartSchema = new mongoose.Schema(
 
 // Indexing for performance
 cartSchema.index({ user: 1 });
-cartSchema.index({ updatedAt: -1 });
-cartSchema.index({ 'items.product': 1 });
 
-// Virtual for calculating the total price
-cartSchema.virtual('totalPrice').get(function () {
-  return this.items.reduce((total, item) => {
-    const price = item.selectedVariant.priceAfterDiscount ?? item.selectedVariant.price;
-    return total + price * item.quantity;
-  }, 0);
-});
+
 
 // Auto-update updatedAt when cart changes
 cartSchema.pre('save', function (next) {
