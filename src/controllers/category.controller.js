@@ -9,6 +9,7 @@ import slugify from 'slugify';
 import { deleteImagesByUrlsFromCloudinary } from "./imageUpload.controller.js";
 const CACHE_EXPIRATION = 86400;
 // CREATE CATEGORY
+
 export const createCategory = async (req, res) => {
   try {
     const { name, description, parentCategory, type = 'Main', displayOrder = 0 } = req.body;
@@ -17,29 +18,43 @@ export const createCategory = async (req, res) => {
       return res.status(400).json({ success: false, message: "Name is required." });
     }
 
+    // Validate parent requirement for subcategory
     if (type === 'Sub' && !parentCategory) {
       return res.status(400).json({ success: false, message: "Parent category is required for sub category." });
     }
 
+    let parent = null;
+    let parentSlug = null;
+
     if (parentCategory) {
-      const parent = await Category.findById(parentCategory);
+      parent = await Category.findById(parentCategory);
       if (!parent) {
         return res.status(404).json({ success: false, message: "Parent category not found." });
       }
       if (parent.type !== 'Main') {
         return res.status(400).json({ success: false, message: "Parent category must be a main category." });
       }
+
+      parentSlug = slugify(parent.name, { lower: true, strict: true });
     }
 
-    // Generate unique slug
-    let baseSlug = slugify(name, { lower: true, strict: true });
-    let slug = baseSlug;
-    let count = 1;
-    while (await Category.findOne({ slug })) {
-      slug = `${baseSlug}-${count++}`;
+    // Generate clean slug
+    const childSlug = slugify(name, { lower: true, strict: true });
+
+    let slug = type === "Sub" && parent
+      ? `${parentSlug}-${childSlug}`        // parent-child slug
+      : childSlug;                          // main category slug
+
+    // Check if slug already exists
+    const slugExists = await Category.findOne({ slug });
+    if (slugExists) {
+      return res.status(400).json({
+        success: false,
+        message: "A category with this name already exists under this parent.",
+      });
     }
 
-    // Handle image uploads - expect exactly 2 images
+    // Handle image uploads: must be exactly 2 images
     const files = req.files;
     if (!files || files.length !== 2) {
       return res.status(400).json({
@@ -49,7 +64,7 @@ export const createCategory = async (req, res) => {
     }
 
     const imageUrls = [];
-    const uploadedPublicIds = []; // Track for rollback
+    const uploadedPublicIds = [];
 
     for (const file of files) {
       try {
@@ -62,13 +77,12 @@ export const createCategory = async (req, res) => {
             { fetch_format: "webp" },
           ],
         });
+
         imageUrls.push(uploadResult.secure_url);
         uploadedPublicIds.push(uploadResult.public_id);
+
         await fs.unlink(file.path);
-      } catch (uploadErr) {
-        // console.error("Cloudinary Upload Error:", uploadErr);
-        const rollbackUrls = imageUrls.slice(0, imageUrls.indexOf(uploadResult?.secure_url));
-        await deleteImagesByUrlsFromCloudinary(rollbackUrls);
+      } catch (err) {
         return res.status(500).json({
           success: false,
           message: "Image upload failed. Please try again.",
@@ -83,18 +97,28 @@ export const createCategory = async (req, res) => {
       parentCategory: type === 'Sub' ? parentCategory : null,
       type,
       displayOrder,
-      image: imageUrls, // Store only URLs
+      image: imageUrls,
       isActive: true,
       isDeleted: false,
     });
 
-    await Promise.all([clearCategoryAndCategoryProductsCache(), clearMenuCache(),clearAllRedisCache()]);
+    // Clear caches if you use them
+    try {
+      await Promise.all([
+        clearCategoryAndCategoryProductsCache?.(),
+        clearMenuCache?.(),
+        clearAllRedisCache?.(),
+      ]);
+    } catch {}
+
     res.status(201).json({ success: true, category: newCategory });
+
   } catch (error) {
     console.error("Error creating category:", error);
     res.status(500).json({ success: false, message: "Internal server error." });
   }
 };
+
 // UPDATE CATEGORY
 export const updateCategory = async (req, res) => {
   try {
