@@ -32,14 +32,14 @@ router.get("/getCategoryProducts/:categoryId", getCategoryProducts); // Get prod
 router.get("/getMenuCategories", getMenuCategories);
 // router.use(verifyToken); // All admin routes require token verification
 router.post(
-  "/createCategory",
+  "/createCategory", verifyToken,
   authAdmin, // Only admin can create category
   upload.array("images", 2), // Only 2 images allowed
   createCategory
 );
 
 router.put(
-  "/updateCategory/:id",
+  "/updateCategory/:id", verifyToken,
   authAdmin, // Only admin can update category
   upload.array("images", 2), // Only 2 images allowed
   updateCategory
