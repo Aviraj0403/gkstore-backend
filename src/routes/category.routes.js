@@ -45,8 +45,8 @@ router.put(
   updateCategory
 );
 router.get("/getSubCategories/:parentCategoryId", getSubCategories); 
-router.delete("/deleteCategory/:id", authAdmin, deleteCategory); // Only admin can delete category
-router.put("/restoreCategory/:id", authAdmin, restoreCategory);
+router.delete("/deleteCategory/:id", verifyToken , authAdmin, deleteCategory); // Only admin can delete category
+router.put("/restoreCategory/:id", verifyToken , authAdmin, restoreCategory);
 
 // product fetching based on category and subcategory
 router.get(
