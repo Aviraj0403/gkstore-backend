@@ -38,7 +38,7 @@ export const createCategory = async (req, res) => {
       parentSlug = slugify(parent.name, { lower: true, strict: true });
     }
 
-    // Generate clean slug
+    // Generate clean slug for the category
     const childSlug = slugify(name, { lower: true, strict: true });
 
     let slug = type === "Sub" && parent
@@ -54,39 +54,39 @@ export const createCategory = async (req, res) => {
       });
     }
 
-    // Handle image uploads: must be exactly 2 images
-    const files = req.files;
-    if (!files || files.length !== 2) {
-      return res.status(400).json({
-        success: false,
-        message: "Exactly 2 images are required.",
-      });
-    }
-
-    const imageUrls = [];
-    const uploadedPublicIds = [];
-
-    for (const file of files) {
-      try {
-        const uploadResult = await cloudinary.uploader.upload(file.path, {
-          folder: "category_images",
-          resource_type: "image",
-          transformation: [
-            { width: 800, height: 800, crop: "limit" },
-            { quality: "auto" },
-            { fetch_format: "webp" },
-          ],
-        });
-
-        imageUrls.push(uploadResult.secure_url);
-        uploadedPublicIds.push(uploadResult.public_id);
-
-        await fs.unlink(file.path);
-      } catch (err) {
-        return res.status(500).json({
+    let imageUrls = [];
+    // Handle image uploads only for main categories
+    if (type === 'Main') {
+      const files = req.files;
+      if (!files || files.length !== 2) {
+        return res.status(400).json({
           success: false,
-          message: "Image upload failed. Please try again.",
+          message: "Exactly 2 images are required.",
         });
+      }
+
+      for (const file of files) {
+        try {
+          const uploadResult = await cloudinary.uploader.upload(file.path, {
+            folder: "category_images",
+            resource_type: "image",
+            transformation: [
+              { width: 800, height: 800, crop: "limit" },
+              { quality: "auto" },
+              { fetch_format: "webp" },
+            ],
+          });
+
+          imageUrls.push(uploadResult.secure_url);
+
+          // Clean up the uploaded files
+          await fs.unlink(file.path);
+        } catch (err) {
+          return res.status(500).json({
+            success: false,
+            message: "Image upload failed. Please try again.",
+          });
+        }
       }
     }
 
@@ -97,12 +97,12 @@ export const createCategory = async (req, res) => {
       parentCategory: type === 'Sub' ? parentCategory : null,
       type,
       displayOrder,
-      image: imageUrls,
+      image: imageUrls.length > 0 ? imageUrls : null,  // Only attach images if the category is "Main"
       isActive: true,
       isDeleted: false,
     });
 
-    // Clear caches if you use them
+    // Clear caches if you use them (optional)
     try {
       await Promise.all([
         clearCategoryAndCategoryProductsCache?.(),
@@ -118,6 +118,7 @@ export const createCategory = async (req, res) => {
     res.status(500).json({ success: false, message: "Internal server error." });
   }
 };
+
 
 // UPDATE CATEGORY
 export const updateCategory = async (req, res) => {

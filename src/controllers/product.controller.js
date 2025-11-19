@@ -1185,6 +1185,7 @@ export const getProductsByCategorySlug = async (req, res) => {
     const response = {
       success: true,
       products: result[0].data,
+      categoryName: category.name,
       pagination: {
         total,
         page,
@@ -1236,20 +1237,20 @@ export const getProductsByCategoryAndSubCategorySlug = async (req, res) => {
                 isDeleted: false,
               },
             },
-            { $project: { _id: 1 } },  // Only select the subcategory ID
+            { $project: { _id: 1, name: 1 } },  // Include the subcategory name here
           ],
           as: 'subCategory',
         },
       },
       { $unwind: { path: '$subCategory', preserveNullAndEmptyArrays: false } },
-      { $project: { categoryId: '$_id', subCategoryId: '$subCategory._id' } },
+      { $project: { categoryId: '$_id', categoryName: '$name', subCategoryId: '$subCategory._id', subCategoryName: '$subCategory.name' } },
     ]);
 
     if (categoryAndSubCategory.length === 0) {
       return res.status(404).json({ success: false, message: 'Category or Subcategory not found' });
     }
 
-    const { categoryId, subCategoryId } = categoryAndSubCategory[0];
+    const { categoryId, subCategoryId, categoryName, subCategoryName } = categoryAndSubCategory[0];
 
     // Now, fetch the products based on the categoryId and subCategoryId
     const aggregationPipeline = [
@@ -1348,6 +1349,8 @@ export const getProductsByCategoryAndSubCategorySlug = async (req, res) => {
     const response = {
       success: true,
       products: result[0].data,
+      categoryName,  // Include category name in the response
+      subCategoryName,  // Include subcategory name in the response
       pagination: {
         total,
         page,
@@ -1366,6 +1369,7 @@ export const getProductsByCategoryAndSubCategorySlug = async (req, res) => {
     res.status(500).json({ success: false, message: 'Internal server error' });
   }
 };
+
 
 
 

@@ -1,10 +1,10 @@
 import mongoose from 'mongoose';
 const categorySchema = new mongoose.Schema({
-  name: { 
-    type: String, 
-    required: [true, 'Category name is required'], 
+  name: {
+    type: String,
+    required: [true, 'Category name is required'],
     // unique: true, 
-    trim: true 
+    trim: true
   },
   slug: {
     type: String,
@@ -17,14 +17,14 @@ const categorySchema = new mongoose.Schema({
   description: {
     type: String,
     trim: true,
-    default: '', 
+    default: '',
   },
   parentCategory: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "Category",
     default: null,
     validate: {
-      validator: function(v) {
+      validator: function (v) {
         return v === null || mongoose.Types.ObjectId.isValid(v);
       },
       message: props => `${props.value} is not a valid ObjectId!`
@@ -35,36 +35,40 @@ const categorySchema = new mongoose.Schema({
     enum: ['Main', 'Sub'],
     default: 'Main',
   },
-  displayOrder: { 
-    type: Number, 
-    default: 0, 
+  displayOrder: {
+    type: Number,
+    default: 0,
   },
   image: {
     type: [String],
-    required: [true, 'Exactly two images are required'],
     validate: {
       validator: function (v) {
-        return Array.isArray(v) && v.length === 2;  
+        if (this.type === 'Main') {
+          return Array.isArray(v) && v.length === 2;
+        }
+        return true; // Skip validation for Sub categories
       },
-      message: 'Category must have exactly 2 images.'
-    }
-  },
-  isActive: { 
-    type: Boolean, 
-    default: true, 
+      message: 'Main category must have exactly 2 images.'
+    },
+    default: []
+  }
+  ,
+  isActive: {
+    type: Boolean,
+    default: true,
   },
   isDeleted: {
     type: Boolean,
     default: false,
   },
-  publicId: { 
-    type: String, 
-    default: null 
+  publicId: {
+    type: String,
+    default: null
   },
 }, { timestamps: true });
 
 // Pre-save hook for slug generation
-categorySchema.pre('save', function(next) {
+categorySchema.pre('save', function (next) {
   if (this.isModified('name') || this.isNew) {
     this.slug = this.name.toLowerCase().replace(/ /g, '-').replace(/[^\w-]+/g, '');
   }
@@ -72,7 +76,7 @@ categorySchema.pre('save', function(next) {
 });
 
 // Validation to prevent self-parenting
-categorySchema.pre('save', async function(next) {
+categorySchema.pre('save', async function (next) {
   if (this.parentCategory && this.parentCategory.toString() === this._id.toString()) {
     return next(new Error('Category cannot be its own parent'));
   }
