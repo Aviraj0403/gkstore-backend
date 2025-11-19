@@ -4,7 +4,7 @@ import Product from "../models/product.model.js";
 import cloudinary from '../config/cloudinaryConfig.js';
 import { promises as fs } from 'fs';
 import client from '../config/redisClient.js';
-import { clearCategoryAndCategoryProductsCache, clearMenuCache } from '../services/redis.service.js';
+import {clearAllRedisCache, clearCategoryAndCategoryProductsCache, clearMenuCache } from '../services/redis.service.js';
 import slugify from 'slugify';
 import { deleteImagesByUrlsFromCloudinary } from "./imageUpload.controller.js";
 const CACHE_EXPIRATION = 86400;
