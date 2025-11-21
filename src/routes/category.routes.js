@@ -23,7 +23,7 @@ import upload from '../middlewares/upload.js';
 const router = express.Router();
 
 // Public Routes (no authentication required)
-router.get("/getAllCategories", getAllCategories); // Fetch all categories (admin view)
+router.get("/getAllCategories", verifyToken,authAdmin,getAllCategories); // Fetch all categories (admin view)
 router.get("/getMainCategories", getMainCategories); // Fetch main categories (user view)
 router.get("/getCategory/:id", getCategory); // Get single category details
 router.get("/getCategoryDetails/:id", getCategoryDetails); // Get category with subcategories and products
