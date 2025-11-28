@@ -413,10 +413,11 @@ export const logout = async (req, res) => {
       sameSite: process.env.NODE_ENV === "production" ? "None" : "Lax",
       path: "/",
     };
-
+    res.clearCookie("jwt", cookieOptions);
     res.clearCookie("accessToken", cookieOptions);  // Clear the access token cookie
     res.clearCookie("refreshToken", cookieOptions);  // Clear the refresh token cookie
-
+    res.clearCookie("token", cookieOptions); 
+    res.clearCookie("session", cookieOptions);  // Clear any session cookie if used
     res.status(200).json({ message: "Logout successful" });
   } catch (error) {
     res.status(500).json({ message: "Something went wrong" });

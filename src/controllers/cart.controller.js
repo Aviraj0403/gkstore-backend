@@ -123,7 +123,7 @@ export const addToCart = async (req, res) => {
  */
 export const updateCartItem = async (req, res) => {
   try {
-    const { productId, size } = req.params;
+    const { productId, size } = req.body;
     const { quantity } = req.body;
 
     if (!quantity || quantity < 1) {
@@ -158,7 +158,9 @@ export const updateCartItem = async (req, res) => {
  */
 export const removeCartItem = async (req, res) => {
   try {
-    const { productId, size } = req.params;
+    // Use query parameters for productId and size
+    const { productId, size } = req.query;
+    // console.log('Removing item from cart:', productId, size);
 
     const result = await Cart.updateOne(
       { user: req.user.id },
@@ -166,9 +168,9 @@ export const removeCartItem = async (req, res) => {
         $pull: {
           items: {
             product: productId,
-            'selectedVariant.size': size
-          }
-        }
+            'selectedVariant.size': size, // Ensure you're correctly matching the size
+          },
+        },
       }
     );
 
@@ -177,12 +179,12 @@ export const removeCartItem = async (req, res) => {
     }
 
     res.json({ success: true, message: 'Item removed from cart' });
-
   } catch (error) {
     console.error('Remove Cart Error:', error);
     res.status(500).json({ success: false, message: 'Failed to remove' });
   }
 };
+
 
 /**
  * @desc Clear entire cart
